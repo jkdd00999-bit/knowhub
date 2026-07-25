@@ -1,0 +1,66 @@
+# 环境变量（含 API Key，不可上传）
+.env
+.env_*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 虚拟环境
+venv/
+
+# 模型文件（太大，不上传 Git）
+bge_reranker_base/
+bge_reranker_v2_m3/
+
+# 向量数据库
+chroma_db/
+vector_db/
+temp_vectors/
+
+# 用户数据和文档
+documents/
+output/
+temp_files/
+enterprise_docs/
+enterprise_annual_reports/
+classified_docs/
+
+# 数据库
+*.db
+*.sqlite
+*.sqlite3
+
+# 运行时数据
+scheduled_tasks.json
+
+# 日志
+*.log
+
+# 测试/评测输出
+bench_gpu_smoke.txt
+eval_output.txt
+eval_stderr.txt
+eval_stdout.txt
+resume_output.txt
+scheduler_test*.txt
+temp_check.txt
+_qa_test.txt
+test_queries*.json
+1.md
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# MISC
+.msc
+.mv
+*policy_crawler*
+crawled_policies.json

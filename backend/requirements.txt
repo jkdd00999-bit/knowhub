@@ -1,0 +1,20 @@
+# 开发环境依赖
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+langchain>=0.1.0
+langchain-openai>=0.0.5
+langchain-community>=0.0.10
+chromadb>=0.4.0
+dashscope>=1.10.0
+sentence-transformers>=2.2.0
+BCEmbedding>=0.1.0
+rank-bm25>=0.2.2
+PyPDF2>=3.0.0
+python-docx>=0.8.11
+docx2txt>=0.8
+python-multipart>=0.0.6
+python-jose[cryptography]>=3.3.0
+werkzeug>=2.3.0
+requests>=2.31.0
+pydantic>=2.0.0
+redis>=4.6.0
