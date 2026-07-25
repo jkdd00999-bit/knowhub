@@ -1,77 +1,203 @@
 # 知智 KnowHub — 企业级智能知识助手
 
-面向企业官网知识服务场景，基于 **LangGraph + FastAPI + Qwen + Chroma** 构建企业级 AI 知识助手，实现企业知识问答、文档智能检索、联网搜索、用户记忆及智能订阅等能力。
+> 面向企业官网知识服务场景，基于 **LangGraph + FastAPI + Qwen + Chroma** 构建的企业级 AI 知识助手平台。  
+> 支持企业知识问答、文档智能检索、联网搜索、用户记忆、智能订阅推送等核心能力，实现企业 AI 助手的快速部署与应用。
 
-## 项目结构
+---
+
+## ✨ 核心功能
+
+### 1. 企业知识库自动构建
+- 支持上传 **PDF、Word（.docx）、Markdown（.md）、TXT** 等多种格式企业资料
+- 自动完成文档解析 → 层级语义分块 → Embedding 向量化 → ChromaDB 知识库构建
+- 结合 Metadata 管理文档来源、发布时间及业务分类，支持增量更新知识库
+- 自定义 `HierarchicalTextSplitter` 层级语义分块器，兼容红头文件、政策条文、学术论文
+
+### 2. Agent Workflow 设计
+基于 **LangGraph StateGraph** 设计 11 节点多 Agent 工作流，流程编排如下：
+
+```
+START
+  → load_memory（加载用户记忆：语义记忆 + 情节记忆 + 知识沉淀）
+  → query_rewrite（指代消解 + 问题补全）
+  → query_clarify（LLM 判断是否需要澄清）
+    → [需澄清] clarify_response → save_memory → END
+    → [不需澄清] route_query（意图路由：web / knowledge / chat）
+      → [knowledge] hybrid_retrieval → rag_generate → validate_answer
+        → [回答有效] save_memory → END
+        → [未命中] tool_calling → save_memory → END
+      → [web] tool_calling → save_memory → END
+      → [chat] chat_reply → save_memory → END
+```
+
+### 3. RAG 混合检索
+- **BM25 关键词检索**（jieba 分词）+ **向量语义检索**（DashScope Embedding）混合加权
+- **BGE-Reranker** 语义重排序，优化召回精度
+- 覆盖 **500+ 篇**企业文档，实现 3 秒内检索回复
+- Redis 缓存热点问答，减少重复计算
+
+### 4. Tool Calling 工具调用
+- 集成 **60+ Agent 工具**，覆盖文档搜索、学术研究、网络搜索、数学计算、文本处理、单位换算、文件操作等
+- 知识库未命中时**自动切换联网搜索**（Tavily Search API），实现知识兜底
+- 支持天气查询、翻译、情感分析等实用工具
+
+### 5. 智能订阅推送
+- 用户创建行业政策订阅任务（如"每日 AI 动态推送"）
+- 支持**每天/每周**定时推送频率
+- 后台调度器自动执行：Agent 检索最新信息 → 整理摘要 → **SMTP 邮件推送**到用户邮箱
+- 实现"查询 — 分析 — 订阅"业务闭环
+
+### 6. 长期记忆管道
+- LLM 自动抽取**四类记忆**：用户偏好/事实（user_memory）、情节经验（episodic_memory）、知识沉淀（knowledge_nuggets）、对话归档（dialogue_archive）
+- 入库前与已有记忆做**语义比对去重**（余弦相似度 > 0.85 判定重复）
+- 长时间未调用的记忆**自动衰减权重**（60 天未匹配淘汰，低命中 30 天淘汰）
+- 确保注入 Prompt 的上下文始终精准聚焦用户当前意图
+
+### 7. 用户系统与权限
+- JWT Token 认证，支持注册/登录/角色区分
+- 多用户隔离：记忆、对话、订阅均按 user_id 隔离
+- 管理后台：文档 CRUD、AI 未回答问题统计
+
+---
+
+## 🏗️ 项目结构
 
 ```
 knowhub/
-├── backend/          # 后端 (FastAPI + LangGraph + RAG)
-│   ├── api.py                  # FastAPI 后端，JWT 认证，REST API
-│   ├── agent_graph.py          # LangGraph 多节点 Agent Workflow
-│   ├── agent.py                # Agent 入口
-│   ├── tools.py                # 60+ Agent 工具集
-│   ├── chunk.py                # 文档分块、Embedding、混合检索
-│   ├── hierarchical_splitter.py # 层级语义分块器
+├── backend/                    # 后端 (Python 3.10+)
+│   ├── api.py                  # FastAPI 主应用，JWT 认证，REST API，调度器
+│   ├── agent_graph.py          # LangGraph 11 节点 Agent Workflow
+│   ├── agent.py                # Agent 入口封装
+│   ├── tools.py                # 60+ Agent 工具集（文档/学术/网络/记忆/邮件...）
+│   ├── chunk.py                # 文档加载、分块、Embedding、混合检索器
+│   ├── hierarchical_splitter.py # 层级语义分块器（兼容政策文书+学术论文）
+│   ├── evaluate.py             # RAG 评测（Recall@K、MRR）
+│   ├── compare_mrr.py          # 检索策略对比实验
 │   ├── skills/                 # RAG 优化 Skill
-│   ├── Dockerfile
-│   ├── docker-compose.yml
-│   └── requirements.txt
-└── frontend/         # 前端 (Vue 3 + Vite)
+│   │   ├── query_optimizer.py  #   Query 优化
+│   │   ├── clarify_skill.py    #   澄清判断
+│   │   ├── answer_validator.py #   答案校验
+│   │   └── source_ranker.py    #   来源权威性排序
+│   ├── Dockerfile              # 后端容器配置
+│   ├── docker-compose.yml      # 前后端编排
+│   └── requirements.txt        # Python 依赖
+│
+└── frontend/                   # 前端 (Vue 3 + Vite)
     ├── src/
     │   ├── views/              # 页面组件
-    │   ├── components/         # 通用组件
-    │   ├── composables/        # 组合式函数
-    │   └── router/             # 路由配置
-    ├── Dockerfile
-    ├── nginx.conf
-    └── package.json
+    │   │   ├── Home.vue        #   首页（产品介绍）
+    │   │   ├── Dashboard.vue   #   用户控制台
+    │   │   ├── Knowledge.vue   #   知识库浏览
+    │   │   ├── Documents.vue   #   文档上传管理
+    │   │   ├── Conversations.vue #  对话历史
+    │   │   ├── Subscriptions.vue #  智能订阅管理
+    │   │   ├── Admin.vue       #   管理后台
+    │   │   └── ...
+    │   ├── components/         # 通用组件（AI 助手、骨架屏、Toast）
+    │   ├── composables/        # 组合式函数（请求封装、消息通知）
+    │   └── router/             # 路由配置（含权限守卫）
+    ├── Dockerfile              # 前端容器配置
+    ├── nginx.conf              # Nginx 反向代理
+    └── package.json            # 前端依赖
 ```
 
-## 核心功能
+---
 
-- **企业知识库自动构建**：支持上传 PDF、Word、Markdown 等企业资料，自动完成文档解析、Chunk 切分、Embedding 向量化及知识库构建
-- **Agent Workflow 设计**：基于 LangGraph 设计多节点 Agent Workflow，编排 Query Rewrite、Query Clarify、Hybrid Retrieval、Memory、Tool Calling
-- **RAG 混合检索**：BM25 + BGE Embedding + BGE Reranker 构建混合检索架构，结合标题分块及语义重排序优化召回效果
-- **Tool Calling**：集成 Web Search、邮件通知等工具，知识库未命中时自动联网搜索
-- **智能订阅推送**：用户创建行业政策订阅任务，定时检索最新信息并自动发送邮件
-- **长期记忆管道**：LLM 自动抽取四类记忆并标注重要性，语义去重，自动衰减
+## 🛠️ 技术栈
 
-## 技术栈
+| 层级 | 技术选型 | 说明 |
+|------|---------|------|
+| **LLM** | Qwen3.7-Plus | 阿里云 DashScope，兼容 OpenAI 接口 |
+| **Agent 编排** | LangGraph | StateGraph 多节点工作流，条件路由 |
+| **后端框架** | FastAPI | 异步 REST API，JWT 认证，自动文档 |
+| **向量数据库** | ChromaDB | 持久化向量存储，支持元数据过滤 |
+| **Embedding** | DashScope text-embedding-v4 | 1024 维向量，批量生成 |
+| **重排序** | BGE-Reranker (base) | 本地 CrossEncoder 语义重排 |
+| **关键词检索** | BM25 | jieba 中文分词 + BM25 评分 |
+| **缓存** | Redis | 热点问答缓存，TTL 1 小时 |
+| **前端框架** | Vue 3 (Composition API) | `<script setup>` 语法，Vite 5 构建 |
+| **部署** | Docker + docker-compose | 前后端容器化，Nginx 反向代理 |
 
-| 层 | 技术 |
-|---|------|
-| LLM | Qwen3.7-Plus (DashScope) |
-| Agent 编排 | LangGraph StateGraph |
-| 后端框架 | FastAPI |
-| 向量数据库 | ChromaDB |
-| Embedding | DashScope text-embedding-v4 |
-| 重排序 | BGE-Reranker |
-| 关键词检索 | BM25 (jieba 分词) |
-| 前端框架 | Vue 3 + Vite |
-| 部署 | Docker + docker-compose |
+---
 
-## 快速启动
+## 🚀 快速启动
 
-### 后端
+### 环境要求
+- Python 3.10+
+- Node.js 18+
+- Redis（可选，用于缓存加速）
+
+### 1. 克隆仓库
+
+```bash
+git clone https://github.com/jkdd00999-bit/knowhub.git
+cd knowhub
+```
+
+### 2. 后端启动
 
 ```bash
 cd backend
+
+# 安装依赖
 pip install -r requirements.txt
-# 配置 .env 文件（API Keys）
+
+# 配置环境变量（创建 .env 文件）
+# 必填：DASHSCOPE_API_KEY, TAVILY_API_KEY
+# 可选：SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD
 python api.py
 ```
 
-### 前端
+### 3. 前端启动
 
 ```bash
 cd frontend
+
+# 安装依赖
 npm install
+
+# 启动开发服务器（端口 5173）
 npm run dev
 ```
 
-### Docker 一键部署
+### 4. Docker 一键部署
 
 ```bash
+cd backend
 docker-compose up -d
 ```
+
+启动后访问：
+- 前端页面：http://localhost
+- 后端 API：http://localhost:8000
+- API 文档：http://localhost:8000/docs
+
+---
+
+## 📡 API 接口一览
+
+| 方法 | 路径 | 说明 | 认证 |
+|------|------|------|------|
+| POST | `/api/auth/register` | 用户注册 | ✗ |
+| POST | `/api/auth/login` | 用户登录 | ✗ |
+| GET | `/api/auth/me` | 获取当前用户信息 | ✓ |
+| PUT | `/api/auth/me` | 更新用户信息（邮箱） | ✓ |
+| POST | `/api/chat` | AI 聊天（流式响应） | ✓ |
+| POST | `/api/upload` | 上传文档（PDF/Word/MD/TXT） | ✓ |
+| GET | `/api/docs` | 文档列表 | ✗ |
+| GET | `/api/docs/{id}` | 文档详情 | ✗ |
+| DELETE | `/api/docs/{id}` | 删除文档 | ✓ |
+| GET | `/api/conversations` | 对话列表 | ✓ |
+| GET | `/api/conversations/{id}` | 对话详情 | ✓ |
+| DELETE | `/api/conversations/{id}` | 删除对话 | ✓ |
+| GET | `/api/subscriptions` | 订阅列表 | ✓ |
+| POST | `/api/subscriptions` | 创建订阅 | ✓ |
+| DELETE | `/api/subscriptions/{id}` | 取消订阅 | ✓ |
+| GET | `/api/files` | 上传文件列表 | ✓ |
+| GET | `/api/health` | 健康检查 | ✗ |
+
+---
+
+## 📄 License
+
+本项目仅供学习与展示使用。

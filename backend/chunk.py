@@ -505,7 +505,7 @@ def build_qa_chain(vector_store, chunks):
     
     global hybrid_retriever, reranker  # 👈 新增：声明要修改全局变量
 
-    PROMPT_TEMPLATE = """你是政务资料智能助手。请根据以下参考资料回答用户问题。
+    PROMPT_TEMPLATE = """你是知智，企业级智能知识助手。请根据以下参考资料回答用户问题。
 
 【参考资料】
 {context}
@@ -707,7 +707,7 @@ def build_qa_chain(vector_store, chunks):
 # ==================== 6. 交互问答 ====================
 def interactive_qa(qa_func):
     print("\n" + "=" * 50)
-    print("政务资料智能问答平台（向量检索 + Qwen3.7-Plus）")
+    print("知智 KnowHub — 企业级智能知识助手（向量检索 + Qwen3.7-Plus）")
     print("输入 'exit' 退出，输入 'clear' 清屏")
     print("=" * 50 + "\n")
     print("📚 提示：你可以问文档里的具体内容，例如：")

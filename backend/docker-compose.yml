@@ -13,7 +13,7 @@ services:
       - ./documents:/app/documents
       - ./vector_db:/app/vector_db
       - ./chroma_db:/app/chroma_db
-      - ./docmind.db:/app/docmind.db
+      - ./knowhub.db:/app/knowhub.db
     environment:
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-your-api-key-here}
       - PYTHONIOENCODING=utf-8

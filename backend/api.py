@@ -34,7 +34,7 @@ from hierarchical_splitter import HierarchicalTextSplitter
 from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
 
 # ==================== 配置 ====================
-SECRET_KEY = "docmind-secret-key-change-in-production-2024"
+SECRET_KEY = "knowhub-secret-key-change-in-production-2026"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7天
 
@@ -44,7 +44,7 @@ os.makedirs(DOCUMENTS_DIR, exist_ok=True)
 os.makedirs(VECTOR_DB_DIR, exist_ok=True)
 
 # ==================== 数据库 ====================
-DB_PATH = "docmind.db"
+DB_PATH = "knowhub.db"
 
 @contextmanager
 def get_db():
@@ -249,7 +249,7 @@ class UserUpdate(BaseModel):
     email: str
 
 # ==================== FastAPI 应用 ====================
-app = FastAPI(title="DocMind API")
+app = FastAPI(title="知智 KnowHub API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -267,7 +267,7 @@ llm = ChatOpenAI(
     openai_api_base="https://dashscope.aliyuncs.com/compatible-mode/v1"
 )
 
-prompt_template = """你是 DocMind,智能文档问答助手。请根据以下参考资料回答用户问题。
+prompt_template = """你是知智，企业级智能知识助手。请根据以下参考资料回答用户问题。
 
 【对话历史】（如有）
 {history}
@@ -1109,7 +1109,7 @@ async def root():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DocMind - 智能文档问答助手</title>
+    <title>知智 KnowHub - 企业级智能知识助手</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -1151,8 +1151,8 @@ async def root():
             <div class="w-16 h-16 bg-blue-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
                 <i class="fas fa-robot text-white text-3xl"></i>
             </div>
-            <h2 class="text-2xl font-bold text-gray-800">DocMind</h2>
-            <p class="text-gray-500 text-sm mt-1">智能文档问答助手</p>
+            <h2 class="text-2xl font-bold text-gray-800">知智 KnowHub</h2>
+            <p class="text-gray-500 text-sm mt-1">企业级智能知识助手</p>
         </div>
         
         <div id="loginView">
@@ -1200,7 +1200,7 @@ async def root():
                     <div class="w-10 h-10 bg-blue-500 rounded-xl flex items-center justify-center">
                         <i class="fas fa-robot text-white text-xl"></i>
                     </div>
-                    <div><h1 class="text-xl font-bold text-gray-800">DocMind</h1><p class="text-xs text-gray-400">智能文档问答助手</p></div>
+                    <div><h1 class="text-xl font-bold text-gray-800">知智</h1><p class="text-xs text-gray-400">企业级智能知识助手</p></div>
                 </div>
                 <button onclick="logout()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-sign-out-alt"></i></button>
             </div>
@@ -1249,8 +1249,8 @@ async def root():
         <div id="qa-messages" class="flex-1 overflow-y-auto p-6 space-y-4">
             <div class="flex justify-start fade-in">
                 <div class="bg-gray-100 rounded-2xl rounded-tl-none px-4 py-3 max-w-2xl text-sm">
-                    <div class="flex items-center space-x-2 mb-2"><i class="fas fa-robot text-blue-500"></i><span class="font-medium">DocMind</span></div>
-                    您好！我是 DocMind，智能文档问答助手 🌟<br><br>
+                    <div class="flex items-center space-x-2 mb-2"><i class="fas fa-robot text-blue-500"></i><span class="font-medium">知智</span></div>
+                    您好！我是知智，企业级智能知识助手 🌟<br><br>
                     📎 左侧上传 PDF/Word/Markdown/TXT 文档，系统自动分块入库<br>
                     💬 然后输入问题，我会基于文档内容为您解答<br>
                     🎤 支持语音输入，点击麦克风按钮即可说话
@@ -1323,7 +1323,7 @@ async def root():
             const data = await response.json();
             if (!response.ok) { alert(data.detail || '登录失败'); return; }
             token = data.access_token; currentUser = data.username;
-            localStorage.setItem('docmind_token', token); localStorage.setItem('docmind_user', currentUser);
+            localStorage.setItem('knowhub_token', token); localStorage.setItem('knowhub_user', currentUser);
             document.getElementById('loginModal').classList.add('hidden');
             document.getElementById('mainApp').classList.remove('hidden');
             document.getElementById('currentUser').innerText = currentUser;
@@ -1333,7 +1333,7 @@ async def root():
         } catch(e) { alert(e.message); }
     }
     
-    async function logout() { token = null; currentUser = null; localStorage.removeItem('docmind_token'); localStorage.removeItem('docmind_user'); document.getElementById('loginModal').classList.remove('hidden'); document.getElementById('mainApp').classList.add('hidden'); }
+    async function logout() { token = null; currentUser = null; localStorage.removeItem('knowhub_token'); localStorage.removeItem('knowhub_user'); document.getElementById('loginModal').classList.remove('hidden'); document.getElementById('mainApp').classList.add('hidden'); }
     function showRegister() { document.getElementById('loginView').classList.add('hidden'); document.getElementById('registerView').classList.remove('hidden'); }
     function showLogin() { document.getElementById('registerView').classList.add('hidden'); document.getElementById('loginView').classList.remove('hidden'); }
     
@@ -1390,8 +1390,8 @@ async def root():
     document.getElementById('qa-input').onkeypress = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } };
     document.getElementById('qa-input').addEventListener('input', function() { this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 120) + 'px'; });
     
-    const savedToken = localStorage.getItem('docmind_token');
-    const savedUser = localStorage.getItem('docmind_user');
+    const savedToken = localStorage.getItem('knowhub_token');
+    const savedUser = localStorage.getItem('knowhub_user');
     if (savedToken && savedUser) {
         token = savedToken; currentUser = savedUser;
         document.getElementById('loginModal').classList.add('hidden');

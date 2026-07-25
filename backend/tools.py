@@ -1,5 +1,5 @@
 """
-DocMind Agent 工具集 - 完整版
+知智 KnowHub Agent 工具集 - 完整版
 包含文档、学术、网络、文本、数据、文件、图像、代码等 60+ 工具
 """
 import os
@@ -614,7 +614,7 @@ import sqlite3
 import os
 from typing import Optional
 
-DB_PATH = "docmind.db"
+DB_PATH = "knowhub.db"
 
 def _get_memory_conn():
     """获取数据库连接"""
@@ -1631,7 +1631,7 @@ def get_file_metadata(filename: str, question: str = "") -> str:
     import sqlite3
     import re
     
-    db_path = "docmind.db"
+    db_path = "knowhub.db"
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()

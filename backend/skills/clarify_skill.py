@@ -79,9 +79,9 @@ def _fast_check(query: str, doc_names: list) -> dict:
                 reply = base_reply
             return {"action": "clarify", "reply": reply, "reason": tag}
 
-    # 5. 缺少政务关键词 — 可能是闲聊
+    # 5. 缺少企业知识关键词 — 可能是闲聊
     if not any(kw in q for kw in DOC_KEYWORDS):
-        return {"action": "uncertain", "reason": "缺少政务关键词"}
+        return {"action": "uncertain", "reason": "缺少企业知识关键词"}
 
     return {"action": "pass"}
 
