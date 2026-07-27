@@ -8,7 +8,7 @@ def _auto_extract_all(user_id: str, question: str, answer: str,
                       messages: list, conv_id: int):
     """统一自动提取：用户画像 + 情节记忆 + 对话归档 + 知识沉淀"""
     try:
-        from api import _auto_extract_memory
+        from FastAPI import _auto_extract_memory
         _auto_extract_memory(user_id, question, answer)
     except Exception:
         pass

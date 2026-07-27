@@ -508,7 +508,7 @@ def save_memory_node(state: AgentState) -> dict:
     """回答后自动提取记忆"""
     try:
         # 延迟导入避免循环依赖
-        from memory_utils import _auto_extract_all
+        from memory import _auto_extract_all
 
         messages = []
         for m in state["messages"]:
