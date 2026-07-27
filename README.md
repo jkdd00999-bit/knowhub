@@ -65,18 +65,16 @@ START
 ```
 knowhub/
 ├── backend/                    # 后端 (Python 3.10+)
-│   ├── api.py                  # FastAPI 主应用，JWT 认证，REST API，调度器
+│   ├── FastAPI.py              # FastAPI 主应用，JWT 认证，REST API，调度器
 │   ├── agent_graph.py          # LangGraph 11 节点 Agent Workflow
 │   ├── agent.py                # Agent 入口封装
 │   ├── tools.py                # 60+ Agent 工具集（文档/学术/网络/记忆/邮件...）
 │   ├── chunk.py                # 文档加载、分块、Embedding、混合检索器
+│   ├── memory.py               # 记忆提取工具模块
 │   ├── hierarchical_splitter.py # 层级语义分块器（兼容政策文书+学术论文）
-│   ├── evaluate.py             # RAG 评测（Recall@K、MRR）
-│   ├── compare_mrr.py          # 检索策略对比实验
 │   ├── skills/                 # RAG 优化 Skill
 │   │   ├── query_optimizer.py  #   Query 优化
 │   │   ├── clarify_skill.py    #   澄清判断
-│   │   ├── answer_validator.py #   答案校验
 │   │   └── source_ranker.py    #   来源权威性排序
 │   ├── Dockerfile              # 后端容器配置
 │   ├── docker-compose.yml      # 前后端编排
@@ -152,7 +150,7 @@ cp .env.example .env
 # - JWT_SECRET_KEY: JWT 密钥（请修改为随机字符串）
 
 # 启动后端服务
-python api.py
+python FastAPI.py
 ```
 
 ### 3. 前端启动

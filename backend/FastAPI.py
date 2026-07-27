@@ -700,51 +700,6 @@ async def chat(request: ChatRequest, user: dict = Depends(verify_token)):
         return ChatResponse(answer=f"系统错误:{str(e)}",
                             conversation_id=request.conversation_id or 0)
 
-# ==================== 公开 AI 问答接口（无需登录）====================
-    try:
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT id, filename, file_size, page_count, article_count,
-                       word_count, chunk_count, upload_time
-                FROM user_files
-                ORDER BY upload_time DESC
-            """)
-            rows = cursor.fetchall()
-
-        docs = []
-        for row in rows:
-            doc = dict(row)
-            # 根据文件名推断分类
-            filename = doc.get("filename", "")
-            if any(kw in filename for kw in ["科技", "技术", "AI", "人工智能", "创新", "专利", "研发", "数字", "信息", "互联网", "智能"]):
-                category = "科技"
-            elif any(kw in filename for kw in ["税", "财务", "预算", "金融", "补贴", "价格", "贷款", "融资", "资产", "会计"]):
-                category = "财税"
-            elif any(kw in filename for kw in ["环保", "环境", "生态", "节能", "水", "污染", "流域", "气候", "气象", "碳", "绿色", "养殖", "灌溉"]):
-                category = "环保"
-            elif any(kw in filename for kw in ["规划", "纲要", "发展", "经济", "统计", "报告", "产业", "行业", "市场", "消费", "旅游", "景区"]):
-                category = "行业报告"
-            else:
-                category = "政策法规"  # 默认分类
-
-            docs.append({
-                "id": doc["id"],
-                "title": filename.replace(".pdf", "").replace(".txt", "").replace(".docx", "").replace(".md", ""),
-                "summary": f"共{doc.get('page_count', 0)}页，{doc.get('word_count', 0)}字",
-                "category": category,
-                "file_type": ("pdf" if filename.endswith(".pdf") else
-                              "docx" if filename.endswith(".docx") else
-                              "md" if filename.endswith(".md") else "txt"),
-                "created_at": doc.get("upload_time", ""),
-                "updated_at": doc.get("upload_time", ""),
-            })
-
-        return docs
-    except Exception as e:
-        print(f"Get docs error: {e}")
-        return []
-
 @app.get("/api/docs/hot")
 async def get_hot_docs():
     """获取热门文档"""

@@ -80,16 +80,26 @@ def chat(message: str, history: list = None) -> str:
     """
     import asyncio
 
+    # 检查是否已经在事件循环中运行
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
+        # 如果已经在事件循环中，创建新线程执行
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            future = pool.submit(asyncio.run, chat_async(message, history))
+            result = future.result()
+            return result["output"]
     except RuntimeError:
+        # 没有运行的事件循环，创建新的
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-
-    result = loop.run_until_complete(
-        chat_async(message, history)
-    )
-    return result["output"]
+        try:
+            result = loop.run_until_complete(
+                chat_async(message, history)
+            )
+            return result["output"]
+        finally:
+            loop.close()
 
 
 # 向后兼容：保留 agent_executor 别名（但实际不使用）

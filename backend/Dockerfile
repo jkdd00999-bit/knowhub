@@ -24,4 +24,4 @@ RUN mkdir -p documents vector_db chroma_db
 EXPOSE 8000
 
 # 启动命令
-CMD ["python", "api.py"]
+CMD ["python", "FastAPI.py"]
