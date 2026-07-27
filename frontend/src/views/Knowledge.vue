@@ -15,6 +15,29 @@
       <span class="search-icon">🔍</span>
     </div>
 
+    <!-- 热门文档 -->
+    <section v-if="hotDocs.length > 0" class="hot-docs-section">
+      <div class="section-header">
+        <h2>🔥 热门文档</h2>
+        <p>大家都在看</p>
+      </div>
+      <div class="hot-docs-grid">
+        <router-link
+          v-for="doc in hotDocs"
+          :key="doc.id"
+          :to="'/docs/' + doc.id"
+          class="hot-doc-card"
+        >
+          <div class="hot-doc-title">{{ doc.title }}</div>
+          <div class="hot-doc-summary">{{ doc.summary }}</div>
+          <div class="hot-doc-meta">
+            <span class="category-tag">{{ doc.category }}</span>
+            <span class="update-time">{{ formatDate(doc.updated_at) }}</span>
+          </div>
+        </router-link>
+      </div>
+    </section>
+
     <!-- 知识库列表 -->
     <div v-if="loading" class="kb-grid">
       <div v-for="n in 6" :key="n" class="kb-card skeleton-card">
@@ -86,6 +109,26 @@
     <div v-if="!loading && filteredKnowledge.length === 0" class="empty-state">
       <p>未找到匹配的知识库</p>
     </div>
+
+    <!-- FAQ 区域 -->
+    <section v-if="faqList.length > 0" class="faq-section">
+      <div class="section-header">
+        <h2>❓ 常见问题</h2>
+        <p>快速了解知识库使用方法</p>
+      </div>
+      <div class="faq-list">
+        <div v-for="(faq, index) in faqList" :key="index" class="faq-item">
+          <div class="faq-question">
+            <span class="faq-icon">Q</span>
+            {{ faq.q }}
+          </div>
+          <div class="faq-answer">
+            <span class="faq-icon">A</span>
+            {{ faq.a }}
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -97,6 +140,8 @@ import { request } from '../composables/useRequest'
 const loading = ref(true)
 const searchQuery = ref('')
 const allDocs = ref([])
+const hotDocs = ref([])
+const faqList = ref([])
 const selectedKb = ref(null)
 const kbDocs = ref([])
 
@@ -177,9 +222,15 @@ function filterKnowledge() {
 async function loadDocs() {
   loading.value = true
   try {
-    const res = await request('/api/docs', { silent: true })
-    if (res.ok) {
-      const data = await res.json()
+    // 并行获取文档列表、热门文档和 FAQ
+    const [docsRes, hotRes, faqRes] = await Promise.all([
+      request('/api/docs', { silent: true }),
+      request('/api/docs/hot', { silent: true }),
+      request('/api/docs/faq', { silent: true })
+    ])
+
+    if (docsRes.ok) {
+      const data = await docsRes.json()
       allDocs.value = Array.isArray(data) ? data : (data.items || [])
 
       // 按分类统计文档数量
@@ -216,6 +267,16 @@ async function loadDocs() {
         knowledgeBases.value[1].docCount = Math.ceil(allDocs.value.length / 3)
         knowledgeBases.value[3].docCount = allDocs.value.length
       }
+    }
+
+    // 获取热门文档
+    if (hotRes.ok) {
+      hotDocs.value = await hotRes.json()
+    }
+
+    // 获取 FAQ
+    if (faqRes.ok) {
+      faqList.value = await faqRes.json()
     }
   } catch {}
   loading.value = false
@@ -346,6 +407,162 @@ onMounted(loadDocs)
 .empty-docs { text-align: center; padding: 40px; color: var(--text-muted); }
 
 .empty-state { text-align: center; padding: 40px; color: var(--text-muted); }
+
+/* 热门文档样式 */
+.hot-docs-section {
+  margin-bottom: 48px;
+}
+
+.hot-docs-section .section-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.hot-docs-section .section-header h2 {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.hot-docs-section .section-header p {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.hot-docs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.hot-doc-card {
+  display: block;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  text-decoration: none;
+  color: inherit;
+  transition: all .15s;
+}
+
+.hot-doc-card:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+  text-decoration: none;
+}
+
+.hot-doc-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+
+.hot-doc-summary {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 12px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.hot-doc-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+
+.category-tag {
+  padding: 2px 8px;
+  background: var(--bg);
+  border-radius: 4px;
+  color: var(--text-muted);
+}
+
+.update-time {
+  color: var(--text-muted);
+}
+
+/* FAQ 样式 */
+.faq-section {
+  margin-top: 48px;
+  margin-bottom: 48px;
+}
+
+.faq-section .section-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.faq-section .section-header h2 {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.faq-section .section-header p {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.faq-list {
+  max-width: 800px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.faq-item {
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.faq-question {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--text);
+}
+
+.faq-answer {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.faq-icon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.faq-answer .faq-icon {
+  background: var(--bg);
+  color: var(--text-muted);
+}
 
 @media (max-width: 768px) {
   .kb-grid { grid-template-columns: 1fr; }
