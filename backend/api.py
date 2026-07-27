@@ -837,6 +837,146 @@ async def get_faq():
         {"q": "AI助手的回答准确吗？", "a": "AI基于知识库内容回答，准确率取决于知识库的质量。如果知识库没有相关内容，AI会自动联网搜索。"},
     ]
 
+@app.get("/api/docs/catalog")
+async def get_docs_catalog():
+    """获取文档目录/分类列表"""
+    try:
+        docs = await get_docs()
+        # 按分类组织文档
+        catalog = {}
+        for doc in docs:
+            cat = doc.get("category", "其他")
+            if cat not in catalog:
+                catalog[cat] = {"category": cat, "items": []}
+            catalog[cat]["items"].append(doc)
+
+        return list(catalog.values())
+    except Exception as e:
+        print(f"Get catalog error: {e}")
+        return []
+
+@app.post("/api/docs")
+async def create_doc(request: Request, user: dict = Depends(verify_token)):
+    """创建新文档（管理后台）"""
+    try:
+        data = await request.json()
+        title = data.get("title", "")
+        category = data.get("category", "其他")
+        content = data.get("content", "")
+
+        if not title:
+            raise HTTPException(status_code=400, detail="标题不能为空")
+
+        # 创建文档文件
+        filename = f"{title}.md"
+        filepath = os.path.join(DOCUMENTS_DIR, filename)
+
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(content)
+
+        # 记录到数据库
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO user_files (user_id, filename, file_size, word_count, upload_time)
+                VALUES (?, ?, ?, ?, ?)
+            """, (user["user_id"], filename, len(content.encode("utf-8")), len(content),
+                  datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+            conn.commit()
+
+        return {"status": "ok", "message": "文档创建成功"}
+    except Exception as e:
+        print(f"Create doc error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/docs/{doc_id}")
+async def update_doc(doc_id: int, request: Request, user: dict = Depends(verify_token)):
+    """更新文档（管理后台）"""
+    try:
+        data = await request.json()
+        title = data.get("title", "")
+        category = data.get("category", "其他")
+        content = data.get("content", "")
+
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT filename FROM user_files WHERE id = ?", (doc_id,))
+            row = cursor.fetchone()
+
+            if not row:
+                raise HTTPException(status_code=404, detail="文档不存在")
+
+            old_filename = row["filename"]
+            old_filepath = os.path.join(DOCUMENTS_DIR, old_filename)
+
+            # 更新文件内容
+            new_filename = f"{title}.md"
+            new_filepath = os.path.join(DOCUMENTS_DIR, new_filename)
+
+            with open(new_filepath, "w", encoding="utf-8") as f:
+                f.write(content)
+
+            # 如果文件名变了，删除旧文件
+            if old_filename != new_filename and os.path.exists(old_filepath):
+                os.remove(old_filepath)
+
+            # 更新数据库
+            cursor.execute("""
+                UPDATE user_files
+                SET filename = ?, word_count = ?, file_size = ?
+                WHERE id = ?
+            """, (new_filename, len(content), len(content.encode("utf-8")), doc_id))
+            conn.commit()
+
+        return {"status": "ok", "message": "文档更新成功"}
+    except Exception as e:
+        print(f"Update doc error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/admin/unanswered")
+async def get_unanswered_questions():
+    """获取未回答的问题列表（管理后台）"""
+    try:
+        # 从对话记录中找出AI回答为"未找到"或"无法回答"的问题
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, user_id, title, messages, created_at
+                FROM conversations
+                ORDER BY created_at DESC
+                LIMIT 100
+            """)
+            conversations = cursor.fetchall()
+
+        unanswered = []
+        for conv in conversations:
+            messages = json.loads(conv["messages"]) if conv["messages"] else []
+            for msg in messages:
+                if msg.get("role") == "assistant":
+                    content = msg.get("content", "")
+                    # 检查是否是未回答或回答失败的情况
+                    if any(keyword in content for keyword in ["未找到", "无法回答", "抱歉", "error", "错误"]):
+                        # 找到对应的用户问题
+                        user_msg = None
+                        for prev_msg in reversed(messages[:messages.index(msg)]):
+                            if prev_msg.get("role") == "user":
+                                user_msg = prev_msg.get("content", "")
+                                break
+
+                        if user_msg:
+                            unanswered.append({
+                                "id": conv["id"],
+                                "question": user_msg,
+                                "answer": content,
+                                "time": conv["created_at"]
+                            })
+                        break
+
+        return unanswered[:20]  # 最多返回 20 条
+    except Exception as e:
+        print(f"Get unanswered error: {e}")
+        return []
+
 @app.get("/api/docs/{doc_id}")
 async def get_doc_detail(doc_id: int):
     """获取文档详情，包含内容"""
