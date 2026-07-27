@@ -1,4 +1,11 @@
 # api.py
+# Windows 控制台编码修复
+import sys
+import io
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -14,11 +21,15 @@ import shutil
 import json 
 import sqlite3
 from contextlib import contextmanager
+from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
 from agent import chat_async, agent_executor
 from PyPDF2 import PdfReader
 # JWT 相关
 from jose import JWTError, jwt
+
+# 加载环境变量
+load_dotenv()
 
 # RAG 相关
 from langchain_openai import ChatOpenAI
@@ -34,7 +45,9 @@ from hierarchical_splitter import HierarchicalTextSplitter
 from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
 
 # ==================== 配置 ====================
-SECRET_KEY = "knowhub-secret-key-change-in-production-2026"
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-this-in-production")
+if SECRET_KEY == "change-this-in-production":
+    print("[WARN] 警告：JWT_SECRET_KEY 使用默认值，请在 .env 文件中设置 JWT_SECRET_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7天
 
@@ -263,7 +276,7 @@ app.add_middleware(
 llm = ChatOpenAI(
     model="qwen3.7-plus",
     temperature=0.3,
-    openai_api_key="sk-6c50a5e024c5403588e4e228f56cf6ea",
+    openai_api_key=os.getenv("DASHSCOPE_API_KEY"),
     openai_api_base="https://dashscope.aliyuncs.com/compatible-mode/v1"
 )
 

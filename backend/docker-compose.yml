@@ -24,7 +24,7 @@ services:
   # 前端
   frontend:
     build:
-      context: ../help-center/frontend
+      context: ../frontend
       dockerfile: Dockerfile
     container_name: knowhub-frontend
     ports:

@@ -29,7 +29,7 @@ from chunk import (
 _llm = ChatOpenAI(
     model="qwen3.7-plus",
     temperature=0.3,
-    openai_api_key="sk-6c50a5e024c5403588e4e228f56cf6ea",
+    openai_api_key=os.getenv("DASHSCOPE_API_KEY"),
     openai_api_base="https://dashscope.aliyuncs.com/compatible-mode/v1",
 )
 
@@ -792,7 +792,7 @@ _conversation_summary: str = ""
 # Embedding 客户端（复用 DashScope）
 from openai import OpenAI as DashScopeClient
 _embed_client = DashScopeClient(
-    api_key="sk-6c50a5e024c5403588e4e228f56cf6ea",
+    api_key=os.getenv("DASHSCOPE_API_KEY"),
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
 )
 

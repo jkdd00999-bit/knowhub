@@ -6,7 +6,12 @@ import time
 import json
 import os
 import re
+from dotenv import load_dotenv
 import chunk
+
+# 加载环境变量
+load_dotenv()
+
 from chunk import (
     BM25Retriever, HybridRetriever, BGEReranker,
     QWEN_MODEL, QWEN_BASE_URL, DOCUMENTS_DIR,
@@ -16,7 +21,9 @@ from langchain_openai import ChatOpenAI
 
 # ==================== 配置 ====================
 TOP_K = 10
-API_KEY = os.getenv("DASHSCOPE_API_KEY", "sk-6c50a5e024c5403588e4e228f56cf6ea")
+API_KEY = os.getenv("DASHSCOPE_API_KEY")
+if not API_KEY:
+    raise ValueError("❌ 请设置环境变量 DASHSCOPE_API_KEY")
 
 TEST_QUERIES = [
     "电力公司出现重大安全隐患不报告会有什么法律后果？",

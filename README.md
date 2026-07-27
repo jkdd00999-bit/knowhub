@@ -142,9 +142,16 @@ cd backend
 # 安装依赖
 pip install -r requirements.txt
 
-# 配置环境变量（创建 .env 文件）
-# 必填：DASHSCOPE_API_KEY, TAVILY_API_KEY
-# 可选：SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD
+# 配置环境变量
+# 复制 .env.example 为 .env 并填写实际值
+cp .env.example .env
+
+# 编辑 .env 文件，填写以下必填项：
+# - DASHSCOPE_API_KEY: 阿里云 DashScope API Key（获取地址：https://dashscope.console.aliyun.com/）
+# - TAVILY_API_KEY: Tavily Search API Key（获取地址：https://tavily.com/）
+# - JWT_SECRET_KEY: JWT 密钥（请修改为随机字符串）
+
+# 启动后端服务
 python api.py
 ```
 

@@ -3,9 +3,14 @@
 三层架构：快速判断(规则正则 <1ms) → 智能判断(LLM ~350ms) → 动态反问(LLM ~350ms)
 评测数据：规则版 P=97.6% 单轮 / LLM版 P=83.3% 多轮
 """
+import os
 import re
+from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage
+
+# 加载环境变量
+load_dotenv()
 
 # ============ 第一层：快速判断 — 规则正则 ============
 
@@ -216,7 +221,7 @@ class ClarifySkill:
     def __init__(self, llm=None):
         self.llm = llm or ChatOpenAI(
             model="qwen-turbo", temperature=0,
-            api_key="sk-6c50a5e024c5403588e4e228f56cf6ea",
+            api_key=os.getenv("DASHSCOPE_API_KEY"),
             base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
         )
 

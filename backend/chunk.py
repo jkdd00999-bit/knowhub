@@ -9,10 +9,15 @@ import warnings
 import math
 from collections import Counter
 from typing import List
+from dotenv import load_dotenv
 import dashscope
 import jieba
 import redis
 from dashscope import TextEmbedding
+
+# 加载环境变量
+load_dotenv()
+
 from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
 from langchain_community.vectorstores import Chroma
 from langchain_openai import ChatOpenAI
@@ -20,12 +25,12 @@ from langchain.prompts import PromptTemplate
 from langchain.schema import Document
 from hierarchical_splitter import HierarchicalTextSplitter
 from skills.clarify_skill import ClarifySkill
-from typing import List
-from langchain.schema import Document
 
 warnings.filterwarnings("ignore")
 # ==================== 配置 ====================
-DASHSCOPE_API_KEY = "sk-6c50a5e024c5403588e4e228f56cf6ea"
+DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY")
+if not DASHSCOPE_API_KEY:
+    raise ValueError("❌ 请设置环境变量 DASHSCOPE_API_KEY（参考 .env.example）")
 QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 QWEN_MODEL = "qwen3.7-plus"
 
