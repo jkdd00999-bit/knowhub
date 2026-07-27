@@ -32,6 +32,45 @@ llm = ChatOpenAI(
     openai_api_base=QWEN_BASE_URL
 )
 
+# ==================== AgentExecutor 单例缓存 ====================
+_tool_calling_executor = None
+
+
+def _get_tool_calling_executor():
+    """获取或创建 AgentExecutor 单例（避免每次请求都重建）"""
+    global _tool_calling_executor
+    if _tool_calling_executor is None:
+        from tools import ALL_TOOLS
+        from langchain.agents import create_tool_calling_agent, AgentExecutor
+        from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", """你是知智，企业级智能知识助手。你有以下工具可用：
+
+## 重要规则
+1. 用户可能一次提出多个需求，你可以连续调用多个工具
+2. 优先使用工具获取信息，而不是自己编造
+3. 回答要友好、完整、有用
+4. 引用信息来源（如有）
+5. 最重要：search_documents 只能搜索本地已上传的文档。如果 search_documents 没有找到相关信息，你必须立即调用 search_web 进行联网搜索。
+
+现在开始帮助用户！"""),
+            MessagesPlaceholder(variable_name="chat_history"),
+            ("human", "{input}"),
+            MessagesPlaceholder(variable_name="agent_scratchpad"),
+        ])
+
+        agent = create_tool_calling_agent(llm, ALL_TOOLS, prompt)
+        _tool_calling_executor = AgentExecutor(
+            agent=agent,
+            tools=ALL_TOOLS,
+            verbose=False,
+            handle_parsing_errors=True,
+            max_iterations=15
+        )
+    return _tool_calling_executor
+
+
 # ==================== RAG Prompt ====================
 PROMPT = PromptTemplate(
     template="""你是知智，企业级智能知识助手。请根据以下参考资料回答用户问题。
@@ -89,9 +128,7 @@ def _init_rag():
             bm25_retriever = BM25Retriever(all_docs)
             _hybrid_retriever = HybridRetriever(
                 vector_store=vector_store,
-                bm25_retriever=bm25_retriever,
-                vector_weight=0.6,
-                bm25_weight=0.4
+                bm25_retriever=bm25_retriever
             )
 
             try:
@@ -440,39 +477,10 @@ def validate_answer_node(state: AgentState) -> dict:
 
 # ==================== 节点 9: tool_calling ====================
 def tool_calling_node(state: AgentState) -> dict:
-    """Agent 工具调用（替代原 AgentExecutor）"""
-    from tools import ALL_TOOLS
-    from langchain.agents import create_tool_calling_agent, AgentExecutor
-    from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
-
+    """Agent 工具调用（使用缓存的 AgentExecutor）"""
     raw = state["raw_message"]
     intent = state.get("intent", "web")
     messages = state["messages"]
-
-    if intent == "web":
-        system_msg = """你是知智，企业级智能知识助手。
-## 重要规则
-1. 优先使用 search_web 搜索最新信息
-2. 引用信息来源
-3. 回答要友好、完整、有用"""
-    else:
-        system_msg = """你是知智，企业级智能知识助手。你有以下工具可用：
-
-## 重要规则
-1. 用户可能一次提出多个需求，你可以连续调用多个工具
-2. 优先使用工具获取信息，而不是自己编造
-3. 回答要友好、完整、有用
-4. 引用信息来源（如有）
-5. 最重要：search_documents 只能搜索本地已上传的文档。如果 search_documents 没有找到相关信息，你必须立即调用 search_web 进行联网搜索。
-
-现在开始帮助用户！"""
-
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system_msg),
-        MessagesPlaceholder(variable_name="chat_history"),
-        ("human", "{input}"),
-        MessagesPlaceholder(variable_name="agent_scratchpad"),
-    ])
 
     chat_history = []
     for m in messages[-10:-1]:
@@ -481,14 +489,8 @@ def tool_calling_node(state: AgentState) -> dict:
         elif isinstance(m, AIMessage):
             chat_history.append(("assistant", m.content))
 
-    agent = create_tool_calling_agent(llm, ALL_TOOLS, prompt)
-    executor = AgentExecutor(
-        agent=agent,
-        tools=ALL_TOOLS,
-        verbose=False,
-        handle_parsing_errors=True,
-        max_iterations=15
-    )
+    # 使用缓存的 AgentExecutor
+    executor = _get_tool_calling_executor()
 
     result = executor.invoke({
         "input": raw,
@@ -534,24 +536,22 @@ def save_memory_node(state: AgentState) -> dict:
     """回答后自动提取记忆"""
     try:
         # 延迟导入避免循环依赖
-        import sys
-        if 'api' in sys.modules:
-            from api import _auto_extract_all
+        from memory_utils import _auto_extract_all
 
-            messages = []
-            for m in state["messages"]:
-                if isinstance(m, HumanMessage):
-                    messages.append({"role": "user", "content": m.content})
-                elif isinstance(m, AIMessage):
-                    messages.append({"role": "assistant", "content": m.content})
+        messages = []
+        for m in state["messages"]:
+            if isinstance(m, HumanMessage):
+                messages.append({"role": "user", "content": m.content})
+            elif isinstance(m, AIMessage):
+                messages.append({"role": "assistant", "content": m.content})
 
-            _auto_extract_all(
-                state["user_id"],
-                state["raw_message"],
-                state.get("answer", ""),
-                messages,
-                state.get("conversation_id", 0),
-            )
+        _auto_extract_all(
+            state["user_id"],
+            state["raw_message"],
+            state.get("answer", ""),
+            messages,
+            state.get("conversation_id", 0),
+        )
     except Exception as e:
         print(f"[WARN] 记忆保存失败: {e}")
 

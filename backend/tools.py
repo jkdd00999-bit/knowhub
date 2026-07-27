@@ -852,7 +852,7 @@ EPISODE_SIMILARITY_THRESHOLD = 0.85
 EPISODE_MAX_AGE_DAYS = 60          # 超过60天未匹配则淘汰
 EPISODE_MIN_HIT_COUNT = 2          # 命中少于2次且超过30天淘汰
 
-def _auto_extract_episode(user_id: str, question: str, answer: str,
+def _auto_extract_episode(user_id: str, question: str,
                           messages: list, conv_id: int):
     """
     从本轮对话中自动提取情节记忆。

@@ -366,27 +366,6 @@ def _auto_extract_memory(user_id: str, question: str, answer: str):
         pass  # 静默失败，不影响正常回答
 
 
-def _auto_extract_all(user_id: str, question: str, answer: str,
-                      messages: list, conv_id: int):
-    """统一自动提取：用户画像 + 情节记忆 + 对话归档 + 知识沉淀"""
-    _auto_extract_memory(user_id, question, answer)
-    try:
-        from tools import _auto_extract_episode
-        _auto_extract_episode(user_id, question, answer, messages, conv_id)
-    except Exception:
-        pass
-    try:
-        from tools import _archive_dialogue_turns
-        _archive_dialogue_turns(user_id, conv_id, messages)
-    except Exception:
-        pass
-    try:
-        from tools import _auto_extract_knowledge
-        _auto_extract_knowledge(user_id, question, answer, messages, conv_id)
-    except Exception:
-        pass
-
-
 # ==================== 辅助函数 ====================
 def extract_file_metadata(filepath: str, text: str) -> dict:
     """提取文件的元数据（页数、条款数、字数等）"""

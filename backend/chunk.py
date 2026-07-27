@@ -43,7 +43,6 @@ reranker = None
 dashscope.api_key = DASHSCOPE_API_KEY
 # ==================== Skill 开关 ====================
 USE_QUERY_OPTIMIZER = True   # Query 优化 Skill（已内嵌在检索逻辑中）
-USE_VALIDATOR = False        # 答案校验 Skill（默认关闭，会增加延迟和成本）
 USE_SOURCE_RANKER = True     # 来源权威性排序 Skill
 # ==================== Redis 缓存（可选） ====================
 REDIS_HOST = "localhost"
@@ -674,20 +673,7 @@ def build_qa_chain(vector_store, chunks):
             print()  # 最终换行
             sources = sorted(sources_set)
             print(f"📊 输出长度: {len(answer)} 字符")
-            # ========== 👇 在这里加入 Answer Validator ==========
-            if USE_VALIDATOR:  # 需要在配置中定义这个开关
-                  from skills.answer_validator import validate_answer
-                  context_summary = context[:2000] if len(context) > 2000 else context
-                  validation = validate_answer(question, answer, context_summary, llm)
-    
-                  if not validation.get("is_valid", True):
-                     print(f"⚠️ [AnswerValidator] 检测到问题: {validation.get('issues')}")
-                       # 可选：如果有改进建议，重新生成答案
-                     if validation.get("suggestion"):
-                        retry_prompt = f"请根据以下建议修正答案：\n{validation['suggestion']}\n\n原答案：{answer}"
-                        response = llm.invoke(retry_prompt)
-                        answer = response.content
-                        print(f"🔄 [AnswerValidator] 已重新生成答案")
+
             # ---- 7. 存入缓存 ----
             if redis_client and ck:
                 try:
