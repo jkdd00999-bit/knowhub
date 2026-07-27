@@ -100,45 +100,17 @@ _reranker = None
 
 
 def _init_rag():
-    """懒初始化 RAG 组件"""
+    """懒初始化 RAG 组件（使用统一的初始化函数）"""
     global _hybrid_retriever, _reranker
     if _hybrid_retriever is not None:
         return
 
     try:
-        from chunk import (
-            load_vector_store, HybridRetriever, BGEReranker, BM25Retriever
-        )
-
-        vector_store = load_vector_store()
-        if vector_store is None:
-            print("[WARN] 向量库为空，RAG 不可用")
-            return
-
-        all_docs = []
-        for collection_name in vector_store._client.list_collections():
-            collection = vector_store._client.get_collection(collection_name)
-            if collection.count() > 0:
-                data = collection.get(include=["documents", "metadatas"])
-                from langchain.schema import Document
-                for doc, meta in zip(data["documents"], data["metadatas"]):
-                    all_docs.append(Document(page_content=doc, metadata=meta))
-
-        if all_docs:
-            bm25_retriever = BM25Retriever(all_docs)
-            _hybrid_retriever = HybridRetriever(
-                vector_store=vector_store,
-                bm25_retriever=bm25_retriever
-            )
-
-            try:
-                _reranker = BGEReranker()
-            except Exception as e:
-                print(f"[WARN] Reranker 加载失败: {e}")
-
-            print(f"[OK] RAG 初始化完成: {len(all_docs)} chunks")
+        from chunk import initialize_rag_components
+        _, _hybrid_retriever, _reranker = initialize_rag_components()
     except Exception as e:
         print(f"[WARN] RAG 初始化失败: {e}")
+        traceback.print_exc()
 
 
 # ==================== AgentState 定义 ====================

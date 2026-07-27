@@ -40,21 +40,16 @@ _reranker = None
 
 
 def _ensure_rag():
+    """确保 RAG 组件已初始化（使用统一的初始化函数）"""
     global _vector_store, _hybrid_retriever, _reranker
     if _hybrid_retriever is not None:
         return
-    _vector_store = load_vector_store()
-    if _vector_store is None:
-        return
-    from pathlib import Path
-    all_files = {f.name for f in Path("./documents").iterdir()
-                 if f.suffix in (".pdf", ".txt") and not f.name.startswith("_")}
-    chunks = chunk_only_new_files(all_files, "./documents")
-    if not chunks:
-        return
-    bm25 = BM25Retriever(chunks)
-    _hybrid_retriever = HybridRetriever(_vector_store, bm25)
-    _reranker = BGEReranker()
+
+    try:
+        from chunk import initialize_rag_components
+        _vector_store, _hybrid_retriever, _reranker = initialize_rag_components()
+    except Exception as e:
+        print(f"[WARN] RAG 初始化失败: {e}")
 
 
 # ==================== 1. 文档工具 (8个) ====================

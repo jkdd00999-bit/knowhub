@@ -12,7 +12,13 @@ from typing import List
 from dotenv import load_dotenv
 import dashscope
 import jieba
-import redis
+
+# Redis 可选导入
+try:
+    import redis
+except ImportError:
+    redis = None
+
 from dashscope import TextEmbedding
 
 # 加载环境变量
@@ -171,7 +177,8 @@ class HybridRetriever:
         seen = set()
         merged = []
         for doc in vector_docs + bm25_docs:
-            key = doc.page_content[:100]
+            # 使用更长的文本片段和来源信息进行去重，避免误去重
+            key = f"{doc.metadata.get('source', '')}:{doc.page_content[:300]}"
             if key not in seen:
                 seen.add(key)
                 merged.append(doc)
@@ -483,6 +490,56 @@ def load_vector_store():
         print(f"加载向量库失败: {e}")
         traceback.print_exc()
         return None
+
+
+def initialize_rag_components():
+    """
+    统一的 RAG 组件初始化函数
+    返回: (vector_store, hybrid_retriever, reranker) 或 (None, None, None)
+    """
+    try:
+        vector_store = load_vector_store()
+        if vector_store is None:
+            print("[WARN] 向量库为空，RAG 不可用")
+            return None, None, None
+
+        # 从向量库加载所有文档
+        all_docs = []
+        for collection_name in vector_store._client.list_collections():
+            collection = vector_store._client.get_collection(collection_name)
+            if collection.count() > 0:
+                data = collection.get(include=["documents", "metadatas"])
+                from langchain.schema import Document
+                for doc, meta in zip(data["documents"], data["metadatas"]):
+                    all_docs.append(Document(page_content=doc, metadata=meta))
+
+        if not all_docs:
+            print("[WARN] 向量库中没有文档")
+            return None, None, None
+
+        # 创建 BM25 检索器
+        bm25_retriever = BM25Retriever(all_docs)
+
+        # 创建混合检索器
+        hybrid_retriever = HybridRetriever(
+            vector_store=vector_store,
+            bm25_retriever=bm25_retriever
+        )
+
+        # 加载重排模型
+        try:
+            reranker = BGEReranker(model_path="./bge_reranker_v2_m3")
+        except Exception as e:
+            print(f"[WARN] Reranker 加载失败: {e}")
+            reranker = None
+
+        print(f"[OK] RAG 初始化完成: {len(all_docs)} chunks")
+        return vector_store, hybrid_retriever, reranker
+
+    except Exception as e:
+        print(f"[WARN] RAG 初始化失败: {e}")
+        traceback.print_exc()
+        return None, None, None
 
 
 def add_new_documents_to_store(vector_store, new_chunks):
