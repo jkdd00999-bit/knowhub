@@ -190,6 +190,18 @@ npm run dev
 
 ```bash
 cd backend
+
+# 配置环境变量（必填！）
+cp .env.example .env
+# 编辑 .env 文件，至少填写以下必填项：
+# - DASHSCOPE_API_KEY: 阿里云 DashScope API Key
+# - TAVILY_API_KEY: Tavily Search API Key
+# - JWT_SECRET_KEY: JWT 密钥（建议用 python -c "import secrets; print(secrets.token_urlsafe(32))" 生成）
+
+# 国内用户建议取消注释以下行，加速重排模型下载（~2.2GB）
+# HF_ENDPOINT=https://hf-mirror.com
+
+# 启动服务
 docker-compose up -d
 ```
 
@@ -197,6 +209,8 @@ docker-compose up -d
 - 前端页面：http://localhost
 - 后端 API：http://localhost:8000
 - API 文档：http://localhost:8000/docs
+
+> **💡 提示**：首次启动时后端会自动下载 BGE-Reranker 重排模型（约 2.2GB），请耐心等待。国内用户如在 `.env` 中设置了 `HF_ENDPOINT=https://hf-mirror.com` 可显著加速下载。
 
 ---
 
