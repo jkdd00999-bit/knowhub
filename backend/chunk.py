@@ -512,7 +512,9 @@ def initialize_rag_components():
         BM25_CORPUS_LIMIT = 2000
         all_docs = []
         total_count = 0
-        for collection_name in vector_store._client.list_collections():
+        for collection_obj in vector_store._client.list_collections():
+            # ChromaDB >= 0.5 返回 Collection 对象，旧版返回字符串
+            collection_name = collection_obj if isinstance(collection_obj, str) else collection_obj.name
             collection = vector_store._client.get_collection(collection_name)
             count = collection.count()
             total_count += count
