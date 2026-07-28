@@ -191,30 +191,29 @@ class BGEReranker:
 
     def __init__(self, model_path="./bge_reranker_v2_m3"):
         self.model = None
-        self.model_path = model_path
+        self.local_path = model_path
+        self.hf_model_id = "BAAI/bge-reranker-v2-m3"
         self._load_model()
 
     def _load_model(self):
-        print(f"正在加载重排模型: {self.model_path}...")
         try:
             from sentence_transformers import CrossEncoder
-            abs_path = os.path.abspath(self.model_path)
+            abs_path = os.path.abspath(self.local_path)
             # 优先从本地目录加载
             if os.path.isdir(abs_path) and os.path.exists(os.path.join(abs_path, "config.json")):
-                print("  从本地目录加载...")
+                print(f"从本地目录加载重排模型: {abs_path}")
                 self.model = CrossEncoder(
                     abs_path, device="cpu", trust_remote_code=True,
                     model_kwargs={"low_cpu_mem_usage": True},
                 )
             else:
-                # 本地不存在，自动从 HuggingFace 下载
-                print(f"  本地模型不存在，自动从 HuggingFace 下载 '{self.model_path}'...")
+                # 本地不存在，从 HuggingFace 下载
+                print(f"本地模型不存在，从 HuggingFace 自动下载: {self.hf_model_id}")
                 self.model = CrossEncoder(
-                    self.model_path, device="cpu", trust_remote_code=True,
+                    self.hf_model_id, device="cpu", trust_remote_code=True,
                     model_kwargs={"low_cpu_mem_usage": True},
                 )
-                # 下载后缓存到本地目录，下次启动直接加载
-                print(f"  ✅ 模型已下载，后续启动将从缓存加载")
+                print("✅ 模型已下载并缓存，后续启动将自动使用缓存")
             _ = self.model.predict([["预热", "预热"]], show_progress_bar=False)
             print("✅ 重排模型加载完成")
         except Exception as e:
