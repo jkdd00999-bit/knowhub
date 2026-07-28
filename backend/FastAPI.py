@@ -1662,6 +1662,11 @@ def start_scheduler():
 
 
 # ==================== 启动 ====================
-if __name__ == "__main__":
+@app.on_event("startup")
+async def _startup_scheduler():
+    """应用启动时自动启动调度器（兼容 uvicorn 和直接运行）"""
     start_scheduler()
+
+
+if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
