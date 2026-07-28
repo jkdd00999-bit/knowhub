@@ -35,8 +35,6 @@ from skills.clarify_skill import ClarifySkill
 warnings.filterwarnings("ignore")
 # ==================== 配置 ====================
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY")
-if not DASHSCOPE_API_KEY:
-    raise ValueError("❌ 请设置环境变量 DASHSCOPE_API_KEY（参考 .env.example）")
 QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 QWEN_MODEL = "qwen3.7-plus"
 
@@ -51,9 +49,9 @@ dashscope.api_key = DASHSCOPE_API_KEY
 USE_QUERY_OPTIMIZER = True   # Query 优化 Skill（已内嵌在检索逻辑中）
 USE_SOURCE_RANKER = True     # 来源权威性排序 Skill
 # ==================== Redis 缓存（可选） ====================
-REDIS_HOST = "localhost"
-REDIS_PORT = 6379
-REDIS_DB = 0
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 CACHE_TTL = 3600
 
 try:
@@ -191,7 +189,7 @@ class HybridRetriever:
 class BGEReranker:
     """BGE 重排模型 - 使用 base 版本"""
 
-    def __init__(self, model_path="./bge_reranker_base"):
+    def __init__(self, model_path="./bge_reranker_v2_m3"):
         self.model = None
         self.model_path = model_path
         self._load_model()
@@ -496,22 +494,39 @@ def initialize_rag_components():
     """
     统一的 RAG 组件初始化函数
     返回: (vector_store, hybrid_retriever, reranker) 或 (None, None, None)
+
+    ⚠️ 注意：BM25 检索器需要加载所有文档到内存。
+    文档量超过 1000 份时可能产生较大内存占用。
+    如遇到 OOM，考虑对 collection 分批加载或限制 BM25 索引大小。
     """
+    if not DASHSCOPE_API_KEY:
+        print("[WARN] 未设置环境变量 DASHSCOPE_API_KEY（参考 .env.example），RAG 组件不可用")
+        return None, None, None
     try:
         vector_store = load_vector_store()
         if vector_store is None:
             print("[WARN] 向量库为空，RAG 不可用")
             return None, None, None
 
-        # 从向量库加载所有文档
+        # 从向量库加载文档（限制 BM25 语料上限，避免 OOM）
+        BM25_CORPUS_LIMIT = 2000
         all_docs = []
+        total_count = 0
         for collection_name in vector_store._client.list_collections():
             collection = vector_store._client.get_collection(collection_name)
-            if collection.count() > 0:
-                data = collection.get(include=["documents", "metadatas"])
+            count = collection.count()
+            total_count += count
+            if count > 0:
+                if count > BM25_CORPUS_LIMIT:
+                    data = collection.get(include=["documents", "metadatas"], limit=BM25_CORPUS_LIMIT)
+                else:
+                    data = collection.get(include=["documents", "metadatas"])
                 from langchain.schema import Document
                 for doc, meta in zip(data["documents"], data["metadatas"]):
                     all_docs.append(Document(page_content=doc, metadata=meta))
+        if total_count > 0:
+            print("BM25 语料：{} / 总量 {} 条（采样率 {:.1%}）".format(
+                len(all_docs), total_count, len(all_docs) / total_count))
 
         if not all_docs:
             print("[WARN] 向量库中没有文档")
@@ -560,11 +575,18 @@ def add_new_documents_to_store(vector_store, new_chunks):
         return None
 
 
-# ==================== 5. 构建问答链 ====================
+# ==================== 5. 构建问答链（已废弃）====================
+# ⚠️ DEPRECATED: 此函数已被 LangGraph 工作流替代（agent_graph.py）。
+# 当前通过 initialize_rag_components() 统一初始化 RAG 组件。
+# 保留此函数仅供向后兼容参考，不建议在生产环境调用。
 def build_qa_chain(vector_store, chunks):
-    """构建带混合检索 + 重排 + 反向澄清 + Redis 缓存的 RAG 问答链"""
-    
-    global hybrid_retriever, reranker  # 👈 新增：声明要修改全局变量
+    """[DEPRECATED] 构建带混合检索 + 重排 + 反向澄清 + Redis 缓存的 RAG 问答链
+    请使用 agent_graph.py 中的 LangGraph 工作流替代。"""
+
+    # 显式引用模块级变量（避免闭包断链风险）
+    _redis_client = redis_client
+    _cache_ttl = CACHE_TTL
+    _use_source_ranker = USE_SOURCE_RANKER
 
     PROMPT_TEMPLATE = """你是知智，企业级智能知识助手。请根据以下参考资料回答用户问题。
 
@@ -597,10 +619,10 @@ def build_qa_chain(vector_store, chunks):
     bm25_retriever = BM25Retriever(chunks)
 
     print("正在初始化混合检索器...")
-    hybrid_retriever = HybridRetriever(vector_store, bm25_retriever)  # 👈 赋值给全局变量
+    local_hybrid_retriever = HybridRetriever(vector_store, bm25_retriever)
 
     print("正在初始化重排器(BGE-Reranker-v2-m3)...")
-    reranker = BGEReranker(model_path="./bge_reranker_v2_m3")  # 👈 赋值给全局变量
+    local_reranker = BGEReranker(model_path="./bge_reranker_v2_m3")
 
     # ==================== 反向澄清（三层流水线：规则 → LLM消解 → 动态反问）====================
     clarify = ClarifySkill(llm=llm)
@@ -609,9 +631,9 @@ def build_qa_chain(vector_store, chunks):
     def qa_function(question: str) -> dict:
         try:
             # ---- 0. Redis 缓存 ----
-            if redis_client:
+            if _redis_client:
                 ck = _cache_key(question)
-                cached = redis_client.get(ck)
+                cached = _redis_client.get(ck)
                 if cached:
                     print("\n💾 [缓存命中] 直接返回")
                     data = json.loads(cached)
@@ -627,7 +649,7 @@ def build_qa_chain(vector_store, chunks):
                 print(f"   扩展候选: {candidates}")
                 all_docs = []
                 for q in candidates:
-                    all_docs.extend(hybrid_retriever.similarity_search(q, k=10))
+                    all_docs.extend(local_hybrid_retriever.similarity_search(q, k=10))
                 seen_keys = set()
                 docs = []
                 for d in all_docs:
@@ -637,7 +659,7 @@ def build_qa_chain(vector_store, chunks):
                         docs.append(d)
                 docs = docs[:40]
             else:
-                docs = hybrid_retriever.similarity_search(question, k=30)
+                docs = local_hybrid_retriever.similarity_search(question, k=30)
 
             if not docs:
                 return {"answer": "资料中没有找到相关信息。", "sources": []}
@@ -686,7 +708,7 @@ def build_qa_chain(vector_store, chunks):
             print(f"🔄 正在对 {len(docs)} 个结果进行重排...")
             reranked_docs = reranker.rerank(question, docs, top_k=8)
             # ========== 👇 在这里加入 Source Ranker ==========
-            if USE_SOURCE_RANKER:  # 需要在配置中定义这个开关
+            if _use_source_ranker:
                 from skills.source_ranker import rerank_by_authority
                 reranked_docs = rerank_by_authority(reranked_docs)
                 print("  📊 [SourceRanker] 已按权威性重排序")
@@ -732,13 +754,13 @@ def build_qa_chain(vector_store, chunks):
             print(f"📊 输出长度: {len(answer)} 字符")
 
             # ---- 7. 存入缓存 ----
-            if redis_client and ck:
+            if _redis_client and ck:
                 try:
-                    redis_client.setex(
-                        ck, CACHE_TTL,
+                    _redis_client.setex(
+                        ck, _cache_ttl,
                         json.dumps({"answer": answer, "sources": sources}, ensure_ascii=False),
                     )
-                    print(f"💾 [已缓存] 有效期 {CACHE_TTL} 秒")
+                    print(f"💾 [已缓存] 有效期 {_cache_ttl} 秒")
                 except Exception as e:
                     print(f"⚠️ 缓存写入失败: {e}")
 

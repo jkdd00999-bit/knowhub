@@ -1,0 +1,11 @@
+.env
+*.db
+vector_db/
+chroma_db/
+__pycache__/
+.git/
+*.pyc
+.pytest_cache/
+node_modules/
+dist/
+scheduler.log

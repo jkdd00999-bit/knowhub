@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime, timedelta
 import uvicorn
@@ -23,7 +23,7 @@ import sqlite3
 from contextlib import contextmanager
 from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
-from agent import chat_async, agent_executor
+from agent import chat_async
 from PyPDF2 import PdfReader
 # JWT 相关
 from jose import JWTError, jwt
@@ -45,9 +45,11 @@ from hierarchical_splitter import HierarchicalTextSplitter
 from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
 
 # ==================== 配置 ====================
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-this-in-production")
-if SECRET_KEY == "change-this-in-production":
-    print("[WARN] 警告：JWT_SECRET_KEY 使用默认值，请在 .env 文件中设置 JWT_SECRET_KEY")
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
+if not SECRET_KEY:
+    import secrets
+    SECRET_KEY = secrets.token_urlsafe(32)
+    print("[WARN] ⚠️ JWT_SECRET_KEY 未配置，已自动生成随机密钥（重启后失效）。请在 .env 中设置持久密钥！")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7天
 
@@ -57,11 +59,16 @@ os.makedirs(DOCUMENTS_DIR, exist_ok=True)
 os.makedirs(VECTOR_DB_DIR, exist_ok=True)
 
 # ==================== 数据库 ====================
-DB_PATH = "knowhub.db"
+_DATA_DIR = os.getenv("DB_DIR", "./data")
+os.makedirs(_DATA_DIR, exist_ok=True)
+DB_PATH = os.path.join(_DATA_DIR, "knowhub.db")
 
 @contextmanager
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn.execute("PRAGMA journal_mode=WAL")
+    _busy_timeout = int(os.getenv("SQLITE_BUSY_TIMEOUT", "5000"))
+    conn.execute(f"PRAGMA busy_timeout={_busy_timeout}")
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -155,6 +162,18 @@ def init_db():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # 用户长期记忆表（user_memory）
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_memory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                memory_key TEXT NOT NULL,
+                memory_value TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, memory_key)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_memory_user ON user_memory(user_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_user ON knowledge_nuggets(user_id, created_at)")
         # 如果表已存在但缺少新字段，添加它们
         try:
@@ -176,6 +195,11 @@ def init_db():
         # users 表添加 email 字段
         try:
             conn.execute("ALTER TABLE users ADD COLUMN email TEXT DEFAULT ''")
+        except:
+            pass
+        # users 表添加 role 字段（默认 viewer）
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'viewer'")
         except:
             pass
         # 订阅管理表
@@ -219,14 +243,18 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return {"user_id": int(payload.get("sub")), "username": payload.get("username")}
+        try:
+            user_id = int(payload.get("sub"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=401, detail="无效的认证凭证")
+        return {"user_id": user_id, "username": payload.get("username")}
     except JWTError:
         raise HTTPException(status_code=401, detail="无效的认证凭证")
 
 # ==================== Pydantic 模型 ====================
 class UserRegister(BaseModel):
-    username: str
-    password: str
+    username: str = Field(..., min_length=2, max_length=20)
+    password: str = Field(..., min_length=6, max_length=128)
 
 class UserLogin(BaseModel):
     username: str
@@ -253,6 +281,8 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     conversation_id: int
+    references: list = []
+    source: str = ""
 
 class SubscriptionCreate(BaseModel):
     topic: str
@@ -264,9 +294,11 @@ class UserUpdate(BaseModel):
 # ==================== FastAPI 应用 ====================
 app = FastAPI(title="知智 KnowHub API")
 
+import os as _cors_os
+_cors_origins = _cors_os.getenv("CORS_ORIGINS", "http://localhost:8000,http://localhost:5173,http://localhost")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[o.strip() for o in _cors_origins.split(",") if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -301,29 +333,6 @@ prompt_template = """你是知智，企业级智能知识助手。请根据以�
 【回答】"""
 
 PROMPT = PromptTemplate(template=prompt_template, input_variables=["context", "question", "history"])
-
-# ==================== RAG 检索器（懒初始化）====================
-_hybrid_retriever = None
-_reranker = None
-
-
-def _init_rag():
-    """启动时/上传文件后初始化混合检索器（只用缓存 chunks，不重新分块）"""
-    global _hybrid_retriever, _reranker
-    vs = load_vector_store()
-    if vs is None:
-        return False
-    # 用 chunk_only_new_files:已有文件从缓存加载，只对新文件分块
-    all_files = {f for f in os.listdir(_DOCS_DIR) if f.endswith(('.pdf', '.txt', '.docx', '.md'))}
-    chunks = chunk_only_new_files(all_files, _DOCS_DIR)
-    if not chunks:
-        return False
-    bm25 = BM25Retriever(chunks)
-    _hybrid_retriever = HybridRetriever(vs, bm25)
-    _reranker = BGEReranker()
-    print(f"RAG 检索器就绪 ({len(chunks)} 个文本块)")
-    return True
-
 
 def _auto_extract_memory(user_id: str, question: str, answer: str):
     """自动从对话中提取用户的长期记忆（名字、偏好、身份等），存入 SQLite"""
@@ -425,14 +434,15 @@ async def register(user: UserRegister):
 async def login(user: UserLogin):
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, username, password_hash, email FROM users WHERE username = ?", (user.username,))
+        cursor.execute("SELECT id, username, password_hash, email, role FROM users WHERE username = ?", (user.username,))
         row = cursor.fetchone()
         if not row or not verify_password(user.password, row["password_hash"]):
             raise HTTPException(status_code=401, detail="用户名或密码错误")
         token = create_access_token({"sub": str(row["id"]), "username": row["username"]})
         return {"access_token": token, "token_type": "bearer",
                 "username": row["username"], "user_id": row["id"],
-                "email": row["email"] or ""}
+                "email": row["email"] or "",
+                "role": row["role"] or "viewer"}
 
 @app.get("/api/auth/me")
 async def get_current_user(user: dict = Depends(verify_token)):
@@ -524,10 +534,11 @@ async def delete_conversation(conv_id: int, user: dict = Depends(verify_token)):
 # ==================== 文件上传接口 ====================
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...), user: dict = Depends(verify_token)):
-    filepath = os.path.join(DOCUMENTS_DIR, f"{user['user_id']}_{file.filename}")
+    stored_filename = f"{user['user_id']}_{os.path.basename(file.filename)}"
+    filepath = os.path.join(DOCUMENTS_DIR, stored_filename)
     with open(filepath, "wb") as f:
         shutil.copyfileobj(file.file, f)
-    
+
     # 解析文件
     if file.filename.endswith('.pdf'):
         loader = PyPDFLoader(filepath)
@@ -537,21 +548,21 @@ async def upload_file(file: UploadFile = File(...), user: dict = Depends(verify_
         loader = Docx2txtLoader(filepath)
     else:
         return {"code": 400, "message": "暂不支持此格式"}
-    
+
     docs = loader.load()
     for doc in docs:
         doc.metadata["source"] = file.filename
         doc.metadata["user_id"] = user["user_id"]
-    
+
     # ========== 提取元数据 ==========
     full_text = "\n".join([d.page_content for d in docs])
     metadata = extract_file_metadata(filepath, full_text)
     print(f"📊 元数据: {metadata}")
     # ================================
-    
+
     splitter = HierarchicalTextSplitter()
     chunks = splitter.split_documents(docs)
-    
+
     vector_store = load_vector_store()
     if vector_store is None:
         vector_store = create_vector_store(chunks)
@@ -563,18 +574,18 @@ async def upload_file(file: UploadFile = File(...), user: dict = Depends(verify_
     existing_chunks.extend(chunks)
     save_chunks_cache(existing_chunks)
     chunked_files = get_chunked_files()
-    chunked_files.add(file.filename)
+    chunked_files.add(stored_filename)
     save_chunked_files(chunked_files)
-    
-    # ========== 保存元数据到数据库 ==========
+
+    # ========== 保存元数据到数据库（存储实际文件名，便于删除时定位）==========
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO user_files (user_id, filename, file_size, page_count, article_count, word_count, chunk_count) 
+            INSERT INTO user_files (user_id, filename, file_size, page_count, article_count, word_count, chunk_count)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (
-            user["user_id"], 
-            file.filename,
+            user["user_id"],
+            stored_filename,
             metadata["file_size"],
             metadata["page_count"],
             metadata["article_count"],
@@ -584,10 +595,11 @@ async def upload_file(file: UploadFile = File(...), user: dict = Depends(verify_
     # ======================================
 
     # 上传后重新初始化检索器
-    _init_rag()
+    from chunk import initialize_rag_components
+    initialize_rag_components()
 
     return {"code": 200, "data": {
-        "chunk_count": len(chunks), 
+        "chunk_count": len(chunks),
         "filename": file.filename,
         "metadata": metadata
     }}
@@ -597,7 +609,7 @@ async def get_user_files(user: dict = Depends(verify_token)):
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT id, filename, chunk_count, uploaded_at FROM user_files WHERE user_id = ? ORDER BY uploaded_at DESC",
+            "SELECT id, filename, chunk_count, upload_time FROM user_files WHERE user_id = ? ORDER BY upload_time DESC",
             (user["user_id"],)
         )
         rows = cursor.fetchall()
@@ -686,12 +698,15 @@ async def chat(request: ChatRequest, user: dict = Depends(verify_token)):
         )
 
         answer = result["output"]
+        references = result.get("references", [])
+        source = result.get("source", "")
 
         # 保存聊天
         conv_id = _save_chat(conv_id, user["user_id"], messages, conv_title,
                              request.message, answer)
 
-        return ChatResponse(answer=answer, conversation_id=conv_id)
+        return ChatResponse(answer=answer, conversation_id=conv_id,
+                            references=references, source=source)
 
     except Exception as e:
         import traceback as _tb
@@ -699,6 +714,63 @@ async def chat(request: ChatRequest, user: dict = Depends(verify_token)):
         _tb.print_exc()
         return ChatResponse(answer=f"系统错误:{str(e)}",
                             conversation_id=request.conversation_id or 0)
+
+async def get_docs():
+    """获取所有文档列表（内部复用函数）"""
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, filename, file_size, page_count, article_count,
+                       word_count, chunk_count, upload_time
+                FROM user_files ORDER BY upload_time DESC
+            """)
+            rows = cursor.fetchall()
+
+        docs = []
+        for row in rows:
+            row = dict(row)
+            filename = row.get("filename", "")
+            # 去掉 user_id_ 前缀用于显示
+            display_name = filename.split("_", 1)[-1] if "_" in filename else filename
+            title = display_name.rsplit(".", 1)[0] if "." in display_name else display_name
+            ext = display_name.rsplit(".", 1)[-1].lower() if "." in display_name else ""
+
+            # 推断分类
+            if any(kw in filename for kw in ["科技", "技术", "AI", "人工智能", "创新", "专利"]):
+                category = "科技政策"
+            elif any(kw in filename for kw in ["税", "财务", "预算", "金融", "补贴", "价格"]):
+                category = "财税政策"
+            elif any(kw in filename for kw in ["环保", "环境", "生态", "节能", "水", "污染", "流域"]):
+                category = "环保政策"
+            elif any(kw in filename for kw in ["规划", "纲要", "发展", "经济", "统计", "报告"]):
+                category = "行业报告"
+            else:
+                category = "企业文档"
+
+            page_count = row.get("page_count", 0)
+            word_count = row.get("word_count", 0)
+
+            docs.append({
+                "id": row["id"],
+                "title": title,
+                "summary": f"共{page_count}页，{word_count}字",
+                "category": category,
+                "content": "",
+                "file_type": ext,
+                "created_at": row.get("upload_time", ""),
+                "updated_at": row.get("upload_time", ""),
+            })
+        return docs
+    except Exception as e:
+        print(f"Get docs error: {e}")
+        return []
+
+
+@app.get("/api/docs")
+async def list_docs():
+    """文档列表（公开）"""
+    return await get_docs()
 
 @app.get("/api/docs/hot")
 async def get_hot_docs():
@@ -734,6 +806,13 @@ async def get_docs_catalog():
         print(f"Get catalog error: {e}")
         return []
 
+def sanitize_title(title: str) -> str:
+    """保留中英文数字和连字符，其余删除"""
+    import re as _re
+    cleaned = _re.sub(r'[^a-zA-Z0-9\u4e00-\u9fff\-_]', '', title)
+    return cleaned or "untitled"
+
+
 @app.post("/api/docs")
 async def create_doc(request: Request, user: dict = Depends(verify_token)):
     """创建新文档（管理后台）"""
@@ -747,7 +826,7 @@ async def create_doc(request: Request, user: dict = Depends(verify_token)):
             raise HTTPException(status_code=400, detail="标题不能为空")
 
         # 创建文档文件
-        filename = f"{title}.md"
+        filename = f"{sanitize_title(title)}.md"
         filepath = os.path.join(DOCUMENTS_DIR, filename)
 
         with open(filepath, "w", encoding="utf-8") as f:
@@ -779,7 +858,7 @@ async def update_doc(doc_id: int, request: Request, user: dict = Depends(verify_
 
         with get_db() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT filename FROM user_files WHERE id = ?", (doc_id,))
+            cursor.execute("SELECT filename FROM user_files WHERE id = ? AND user_id = ?", (doc_id, user["user_id"]))
             row = cursor.fetchone()
 
             if not row:
@@ -789,7 +868,7 @@ async def update_doc(doc_id: int, request: Request, user: dict = Depends(verify_
             old_filepath = os.path.join(DOCUMENTS_DIR, old_filename)
 
             # 更新文件内容
-            new_filename = f"{title}.md"
+            new_filename = f"{sanitize_title(title)}.md"
             new_filepath = os.path.join(DOCUMENTS_DIR, new_filename)
 
             with open(new_filepath, "w", encoding="utf-8") as f:
@@ -803,8 +882,8 @@ async def update_doc(doc_id: int, request: Request, user: dict = Depends(verify_
             cursor.execute("""
                 UPDATE user_files
                 SET filename = ?, word_count = ?, file_size = ?
-                WHERE id = ?
-            """, (new_filename, len(content), len(content.encode("utf-8")), doc_id))
+                WHERE id = ? AND user_id = ?
+            """, (new_filename, len(content), len(content.encode("utf-8")), doc_id, user["user_id"]))
             conn.commit()
 
         return {"status": "ok", "message": "文档更新成功"}
@@ -813,8 +892,10 @@ async def update_doc(doc_id: int, request: Request, user: dict = Depends(verify_
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/admin/unanswered")
-async def get_unanswered_questions():
+async def get_unanswered_questions(user: dict = Depends(verify_token)):
     """获取未回答的问题列表（管理后台）"""
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
     try:
         # 从对话记录中找出AI回答为"未找到"或"无法回答"的问题
         with get_db() as conn:
@@ -859,6 +940,7 @@ async def get_unanswered_questions():
 @app.get("/api/docs/{doc_id}")
 async def get_doc_detail(doc_id: int):
     """获取文档详情，包含内容"""
+    content = ""
     try:
         with get_db() as conn:
             cursor = conn.cursor()
@@ -895,7 +977,7 @@ async def get_doc_detail(doc_id: int):
         # 查找实际文件（可能带用户ID前缀）
         if not os.path.exists(filepath):
             for f in os.listdir(DOCUMENTS_DIR):
-                if f.endswith(filename) or filename in f:
+                if f == filename or f.endswith(f"_{filename}"):
                     filepath = os.path.join(DOCUMENTS_DIR, f)
                     break
 
@@ -966,8 +1048,11 @@ async def get_doc_detail(doc_id: int):
                 except Exception as e:
                     content = f"Word文档解析失败: {str(e)}"
 
-        # 生成Markdown格式的内容
-        title = filename.replace(".pdf", "").replace(".txt", "").replace(".docx", "").replace(".md", "")
+        # 生成Markdown格式的内容（去掉 user_id_ 前缀）
+        display_name = filename
+        if "_" in display_name:
+            display_name = display_name.split("_", 1)[-1]
+        title = display_name.replace(".pdf", "").replace(".txt", "").replace(".docx", "").replace(".md", "")
         markdown_content = f"""# {title}
 
 **分类**: {category}
@@ -995,12 +1080,12 @@ async def get_doc_detail(doc_id: int):
 
 @app.delete("/api/docs/{doc_id}")
 async def delete_doc(doc_id: int, user: dict = Depends(verify_token)):
-    """删除文档"""
+    """删除文档（同时清理向量数据库和缓存）"""
     try:
         with get_db() as conn:
             cursor = conn.cursor()
             # 查询文档信息
-            cursor.execute("SELECT filename FROM user_files WHERE id = ?", (doc_id,))
+            cursor.execute("SELECT filename FROM user_files WHERE id = ? AND user_id = ?", (doc_id, user["user_id"]))
             row = cursor.fetchone()
 
             if not row:
@@ -1009,13 +1094,50 @@ async def delete_doc(doc_id: int, user: dict = Depends(verify_token)):
             filename = row[0]
 
             # 删除数据库记录
-            cursor.execute("DELETE FROM user_files WHERE id = ?", (doc_id,))
+            cursor.execute("DELETE FROM user_files WHERE id = ? AND user_id = ?", (doc_id, user["user_id"]))
 
-            # 删除物理文件
+            # 删除物理文件（兼容新旧命名格式）
             filepath = os.path.join(DOCUMENTS_DIR, filename)
+            if not os.path.exists(filepath):
+                # 尝试带 user_id 前缀的文件名
+                for f in os.listdir(DOCUMENTS_DIR):
+                    if f == filename or f.endswith(f"_{filename}"):
+                        filepath = os.path.join(DOCUMENTS_DIR, f)
+                        break
             if os.path.exists(filepath):
                 os.remove(filepath)
-                print(f"已删除文件: {filename}")
+                print(f"已删除文件: {filepath}")
+
+            # 清理向量数据库中该文档的所有向量
+            try:
+                vs = load_vector_store()
+                if vs is not None:
+                    vs.delete(where={"source": filename})
+                    # 也尝试用原始文件名（不含 user_id 前缀）清理
+                    original_name = filename.split("_", 1)[-1] if "_" in filename else filename
+                    if original_name != filename:
+                        vs.delete(where={"source": original_name})
+                    print(f"已清理向量数据库中 {filename} 的向量")
+            except Exception as ve:
+                print(f"[WARN] 向量数据库清理失败: {ve}")
+
+            # 清理 chunk 缓存中该文件的 chunks
+            try:
+                cached = load_cached_chunks()
+                filtered = [c for c in cached if c.metadata.get("source") != filename
+                            and c.metadata.get("source") != (filename.split("_", 1)[-1] if "_" in filename else filename)]
+                save_chunks_cache(filtered)
+                chunked_files = get_chunked_files()
+                chunked_files.discard(filename)
+                original_name = filename.split("_", 1)[-1] if "_" in filename else filename
+                chunked_files.discard(original_name)
+                save_chunked_files(chunked_files)
+            except Exception as ce:
+                print(f"[WARN] Chunk 缓存清理失败: {ce}")
+
+            # 重新初始化检索器
+            from chunk import initialize_rag_components
+            initialize_rag_components()
 
             return {"message": "文档已删除"}
     except Exception as e:
@@ -1112,7 +1234,10 @@ async def cancel_subscription(sub_id: int, user: dict = Depends(verify_token)):
 async def health():
     return {"status": "ok"}
 
-# ==================== 前端页面 ====================
+# ==================== 前端页面（仅独立运行模式）====================
+# 注意：此内嵌 HTML 页面仅用于 `python FastAPI.py` 独立运行时快速预览。
+# 正式部署请使用 frontend/ 目录下的 Vue 3 项目（通过 docker-compose 或 npm run dev）。
+# 两套前端不同步维护，生产环境以 Vue 项目为准。
 @app.get("/", response_class=HTMLResponse)
 async def root():
     html_content = '''<!DOCTYPE html>
@@ -1421,8 +1546,9 @@ _scheduler_thread = None
 def _run_scheduler_loop():
     """后台线程：每60秒检查一次到期定时任务并自动执行"""
     import time as _time
+    import asyncio
     from tools import _load_tasks, _save_tasks
-    from agent import agent_executor
+    from agent import chat_async
     from datetime import datetime as _dt, timedelta as _td
 
     print("⏰ 定时任务调度器已启动（每60秒检查一次）")
@@ -1463,14 +1589,16 @@ def _run_scheduler_loop():
             tasks = [t for t in tasks if t.get("repeat") != "once" or t["id"] not in done_ids]
             _save_tasks(tasks)
 
-            # 执行到期任务
+            # 执行到期任务（直接 asyncio.run 调用 chat_async，避免 FakeAgentExecutor 线程嵌套）
             for t in due:
                 _log(f"执行任务 #{t['id']}: {t['query'][:80]}")
                 try:
-                    result = agent_executor.invoke({
-                        "input": t["query"],
-                        "chat_history": []
-                    })
+                    result = asyncio.run(chat_async(
+                        message=t["query"],
+                        history=[],
+                        user_id="0",
+                        conversation_id=0,
+                    ))
                     _log(f"任务 #{t['id']} 完成: {str(result.get('output', ''))[:120]}")
                     # 更新 subscriptions 表的 last_run
                     sub_id = t.get("subscription_id")

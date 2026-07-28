@@ -20,10 +20,6 @@ from typing import Optional, List
 from langchain.tools import tool
 from langchain_community.vectorstores import Chroma
 from langchain_openai import ChatOpenAI
-from chunk import (
-    DashScopeEmbeddings, BM25Retriever, HybridRetriever, BGEReranker,
-    load_vector_store, chunk_only_new_files,
-)
 
 # 独立的 LLM 实例（不依赖 chunk.py 的局部变量）
 _llm = ChatOpenAI(
@@ -240,7 +236,9 @@ def read_file(filepath: str) -> str:
 def write_to_file(filepath: str, content: str) -> str:
     """写入内容到文件。"""
     try:
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        dirname = os.path.dirname(filepath)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(content)
         return f"✅ 已保存到 {filepath}"
@@ -270,11 +268,13 @@ import sqlite3
 import os
 from typing import Optional
 
-DB_PATH = "knowhub.db"
+DB_PATH = os.path.join(os.getenv("DB_DIR", "./data"), "knowhub.db")
 
 def _get_memory_conn():
     """获取数据库连接"""
     conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -813,7 +813,7 @@ _init_knowledge_nuggets_table()
 def _archive_dialogue_turns(user_id: str, conv_id: int, messages: list):
     """
     将本轮新增的消息归档到 dialogue_archive。
-    只归档非空的 user/assistant 消息，附带 embedding。
+    只归档非空的 user/assistant 消息，附带 embedding。按内容哈希去重。
     """
     try:
         conn = _get_memory_conn()
@@ -824,19 +824,27 @@ def _archive_dialogue_turns(user_id: str, conv_id: int, messages: list):
             (conv_id,)
         ).fetchone()[0]
 
+        # 获取已归档消息的内容哈希集合（用于去重）
+        existing = conn.execute(
+            "SELECT role, content FROM dialogue_archive WHERE conversation_id=?",
+            (conv_id,)
+        ).fetchall()
+        existing_hashes = set()
+        for row in existing:
+            h = hashlib.md5(f"{row['role']}|{row['content']}".encode()).hexdigest()
+            existing_hashes.add(h)
+
         new_msgs = []
         for i, msg in enumerate(messages):
             role = msg.get("role", "")
             content = msg.get("content", "").strip()
             if role not in ("user", "assistant") or len(content) < 2:
                 continue
-            # 检查是否已归档（去重）
-            existing = conn.execute(
-                "SELECT id FROM dialogue_archive WHERE conversation_id=? AND turn=? AND role=?",
-                (conv_id, max_turn + 1 + len(new_msgs), role)
-            ).fetchone()
-            if existing:
+            # 内容哈希去重
+            content_hash = hashlib.md5(f"{role}|{content}".encode()).hexdigest()
+            if content_hash in existing_hashes:
                 continue
+            existing_hashes.add(content_hash)  # 防止同一批次重复
             new_msgs.append((role, content, max_turn + 1 + len(new_msgs)))
 
         if not new_msgs:
@@ -1279,16 +1287,36 @@ def get_weather(city: str) -> str:
 
 @tool
 def get_news(category: str = "科技") -> str:
-    """获取最新新闻（需要配置API）。"""
-    return f"新闻功能需要配置新闻API。类别: {category}"
+    """获取最新新闻和资讯。通过联网搜索获取实时结果。"""
+    try:
+        from langchain_community.tools.tavily_search import TavilySearchResults
+        api_key = os.getenv("TAVILY_API_KEY")
+        if not api_key:
+            return f"新闻功能需要配置 TAVILY_API_KEY。你想查看的类别: {category}"
+        tool = TavilySearchResults(max_results=5, api_key=api_key)
+        results = tool.invoke(f"{category} 最新新闻动态")
+        if not results:
+            return f"未找到 {category} 相关的最新新闻。"
+        lines = [f"【{category} 最新资讯】"]
+        for i, r in enumerate(results, 1):
+            title = r.get("content", "")[:200]
+            url = r.get("url", "")
+            lines.append(f"{i}. {title}\n   {url}")
+        return "\n\n".join(lines)
+    except ImportError:
+        return "新闻搜索需要安装 tavily-python：pip install tavily-python"
+    except Exception as e:
+        return f"新闻获取失败：{e}"
 @tool
 def get_file_metadata(filename: str, question: str = "") -> str:
     """获取文档的元数据信息。"""
     import sqlite3
     import re
     
-    db_path = "knowhub.db"
+    db_path = os.path.join(os.getenv("DB_DIR", "./data"), "knowhub.db")
     conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     

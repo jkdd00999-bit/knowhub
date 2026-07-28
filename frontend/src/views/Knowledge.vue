@@ -242,13 +242,7 @@ async function loadDocs() {
 
       // 更新知识库统计
       knowledgeBases.value.forEach(kb => {
-        if (kb.category === 'help' || kb.category === 'docs') {
-          kb.docCount = allDocs.value.filter(d =>
-            d.category === kb.category || d.category === 'help' || d.category === 'docs'
-          ).length
-        } else {
-          kb.docCount = categoryMap[kb.category] || 0
-        }
+        kb.docCount = categoryMap[kb.category] || 0
 
         // 计算最近更新时间
         const kbDocs = allDocs.value.filter(d => d.category === kb.category)
@@ -286,13 +280,7 @@ function openKnowledge(kb) {
   selectedKb.value = kb
 
   // 过滤该知识库的文档
-  if (kb.category === 'help' || kb.category === 'docs') {
-    kbDocs.value = allDocs.value.filter(d =>
-      d.category === kb.category || d.category === 'help' || d.category === 'docs'
-    )
-  } else {
-    kbDocs.value = allDocs.value.filter(d => d.category === kb.category)
-  }
+  kbDocs.value = allDocs.value.filter(d => d.category === kb.category)
 
   // 如果没匹配到文档，显示所有文档（演示用）
   if (kbDocs.value.length === 0) {

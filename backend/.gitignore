@@ -32,6 +32,7 @@ classified_docs/
 *.db
 *.sqlite
 *.sqlite3
+data/
 
 # 运行时数据
 scheduled_tasks.json

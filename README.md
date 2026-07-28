@@ -127,7 +127,7 @@ knowhub/
 | **后端框架** | FastAPI | 异步 REST API，JWT 认证，自动文档 |
 | **向量数据库** | ChromaDB | 持久化向量存储，支持元数据过滤 |
 | **Embedding** | DashScope text-embedding-v4 | 1024 维向量，批量生成 |
-| **重排序** | BGE-Reranker (base) | 本地 CrossEncoder 语义重排 |
+| **重排序** | BGE-Reranker (v2-m3) | 本地 CrossEncoder 语义重排 |
 | **关键词检索** | BM25 | jieba 中文分词 + BM25 评分 |
 | **缓存** | Redis | 热点问答缓存，TTL 1 小时 |
 | **前端框架** | Vue 3 (Composition API) | `<script setup>` 语法，Vite 5 构建 |
@@ -165,6 +165,7 @@ cp .env.example .env
 # - DASHSCOPE_API_KEY: 阿里云 DashScope API Key（获取地址：https://dashscope.console.aliyun.com/）
 # - TAVILY_API_KEY: Tavily Search API Key（获取地址：https://tavily.com/）
 # - JWT_SECRET_KEY: JWT 密钥（请修改为随机字符串）
+#   ⚠️ 生产环境务必设置为随机字符串，否则 JWT 签名不安全
 
 # 启动后端服务
 python FastAPI.py
@@ -218,8 +219,10 @@ docker-compose up -d
 | PUT | `/api/docs/{id}` | 更新文档（管理后台） | ✓ |
 | DELETE | `/api/docs/{id}` | 删除文档 | ✓ |
 | **对话管理** | | | |
+| POST | `/api/conversations` | 创建新会话 | ✓ |
 | GET | `/api/conversations` | 对话列表 | ✓ |
 | GET | `/api/conversations/{id}` | 对话详情 | ✓ |
+| PUT | `/api/conversations/{id}` | 更新会话（标题/消息） | ✓ |
 | DELETE | `/api/conversations/{id}` | 删除对话 | ✓ |
 | **订阅推送** | | | |
 | GET | `/api/subscriptions` | 订阅列表 | ✓ |
@@ -228,7 +231,7 @@ docker-compose up -d
 | **文件管理** | | | |
 | GET | `/api/files` | 上传文件列表 | ✓ |
 | **管理后台** | | | |
-| GET | `/api/admin/unanswered` | 未回答问题统计 | ✓ |
+| GET | `/api/admin/unanswered` | 未回答问题统计 | ✓ (admin) |
 | **系统** | | | |
 | GET | `/api/health` | 健康检查 | ✗ |
 

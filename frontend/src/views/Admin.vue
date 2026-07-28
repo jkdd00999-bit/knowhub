@@ -133,9 +133,10 @@ async function saveDoc() {
       body: JSON.stringify(editForm.value),
     })
     if (res.ok) {
+      const isEdit = !!editingDoc.value
       showEditor.value = false
       editingDoc.value = null
-      toast?.success(editingDoc.value ? '文档已更新' : '文档已创建')
+      toast?.success(isEdit ? '文档已更新' : '文档已创建')
       await fetchData()
     }
   } catch {}

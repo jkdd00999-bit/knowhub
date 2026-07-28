@@ -11,6 +11,7 @@ from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langchain_openai import ChatOpenAI
 from langchain.prompts import PromptTemplate
+from memory import _auto_extract_all
 
 # ==================== 配置（从 .env 文件加载）====================
 try:
@@ -508,9 +509,6 @@ def chat_reply_node(state: AgentState) -> dict:
 def save_memory_node(state: AgentState) -> dict:
     """回答后自动提取记忆"""
     try:
-        # 延迟导入避免循环依赖
-        from memory import _auto_extract_all
-
         messages = []
         for m in state["messages"]:
             if isinstance(m, HumanMessage):

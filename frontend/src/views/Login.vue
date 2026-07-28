@@ -89,7 +89,7 @@ async function handleLogin() {
     localStorage.setItem('token', token)
     localStorage.setItem('username', data.username)
     localStorage.setItem('userId', String(data.user_id))
-    localStorage.setItem('userRole', 'viewer')
+    localStorage.setItem('userRole', data.role || 'viewer')
     localStorage.setItem('email', data.email || '')
 
     // 跳转到目标页或控制台

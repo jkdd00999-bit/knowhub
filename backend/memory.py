@@ -10,23 +10,23 @@ def _auto_extract_all(user_id: str, question: str, answer: str,
     try:
         from FastAPI import _auto_extract_memory
         _auto_extract_memory(user_id, question, answer)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[WARN] memory._auto_extract_memory 失败: {e}")
 
     try:
         from tools import _auto_extract_episode
         _auto_extract_episode(user_id, question, messages, conv_id)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[WARN] memory._auto_extract_episode 失败: {e}")
 
     try:
         from tools import _archive_dialogue_turns
         _archive_dialogue_turns(user_id, conv_id, messages)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[WARN] memory._archive_dialogue_turns 失败: {e}")
 
     try:
         from tools import _auto_extract_knowledge
         _auto_extract_knowledge(user_id, question, answer, messages, conv_id)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[WARN] memory._auto_extract_knowledge 失败: {e}")

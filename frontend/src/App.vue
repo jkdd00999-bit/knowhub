@@ -74,6 +74,7 @@ import { useRouter } from 'vue-router'
 import AiAssistant from './components/AiAssistant.vue'
 import Toast from './components/Toast.vue'
 import { setToastRef } from './composables/useRequest'
+import { toastRef as sharedToastRef } from './main.js'
 
 const router = useRouter()
 const navOpen = ref(false)
@@ -111,6 +112,7 @@ function handleClickOutside(e) {
 onMounted(() => {
   if (toastRef.value) {
     setToastRef(toastRef.value)
+    sharedToastRef.value = toastRef.value
   }
   document.addEventListener('click', handleClickOutside)
 })
