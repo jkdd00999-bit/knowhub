@@ -1,0 +1,4 @@
+# 前端 Dockerfile 不需要额外排除，node_modules 和 dist 已在 .gitignore 中
+# 但 Docker 构建不读 .gitignore，这里显式排除
+node_modules/
+dist/

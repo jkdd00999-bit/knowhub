@@ -1,0 +1,32 @@
+# 环境变量（含 API Key，不可打入镜像）
+.env
+.env_*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 虚拟环境
+venv/
+
+# 向量数据库（运行时生成，不打入镜像）
+vector_db/
+chroma_db/
+
+# 用户上传文档（运行时挂载）
+documents/
+
+# 数据库
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# 日志
+*.log
+
+# IDE
+.vscode/
+.idea/
