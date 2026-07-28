@@ -195,19 +195,31 @@ class BGEReranker:
         self._load_model()
 
     def _load_model(self):
-        print(f"正在从本地路径加载重排模型: {self.model_path}...")
+        print(f"正在加载重排模型: {self.model_path}...")
         try:
             from sentence_transformers import CrossEncoder
             abs_path = os.path.abspath(self.model_path)
-            self.model = CrossEncoder(
-                abs_path, device="cpu", trust_remote_code=True,
-                model_kwargs={"low_cpu_mem_usage": True},
-            )
+            # 优先从本地目录加载
+            if os.path.isdir(abs_path) and os.path.exists(os.path.join(abs_path, "config.json")):
+                print("  从本地目录加载...")
+                self.model = CrossEncoder(
+                    abs_path, device="cpu", trust_remote_code=True,
+                    model_kwargs={"low_cpu_mem_usage": True},
+                )
+            else:
+                # 本地不存在，自动从 HuggingFace 下载
+                print(f"  本地模型不存在，自动从 HuggingFace 下载 '{self.model_path}'...")
+                self.model = CrossEncoder(
+                    self.model_path, device="cpu", trust_remote_code=True,
+                    model_kwargs={"low_cpu_mem_usage": True},
+                )
+                # 下载后缓存到本地目录，下次启动直接加载
+                print(f"  ✅ 模型已下载，后续启动将从缓存加载")
             _ = self.model.predict([["预热", "预热"]], show_progress_bar=False)
             print("✅ 重排模型加载完成")
         except Exception as e:
             import traceback
-            print(f"⚠️ 重排模型加载失败: {e}")
+            print(f"⚠️ 重排模型加载失败（不影响核心功能，仅降低检索精度）: {e}")
             traceback.print_exc()
             self.model = None
 
