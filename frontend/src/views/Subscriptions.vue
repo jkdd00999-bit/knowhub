@@ -121,9 +121,14 @@ async function loadUserData() {
     })
     if (res.ok) {
       const data = await res.json()
-      userEmail.value = data.data?.email || ''
+      userEmail.value = data.data?.email || localStorage.getItem('email') || ''
+    } else {
+      // token 失效，用 localStorage 兜底
+      userEmail.value = localStorage.getItem('email') || ''
     }
-  } catch {}
+  } catch {
+    userEmail.value = localStorage.getItem('email') || ''
+  }
 }
 
 async function loadSubscriptions() {
@@ -163,8 +168,13 @@ async function saveEmail() {
       userEmail.value = email
       localStorage.setItem('email', email)
       newEmail.value = ''
+    } else {
+      const err = await res.json().catch(() => ({}))
+      alert(err.detail || '邮箱保存失败，请重新登录后再试')
     }
-  } catch {}
+  } catch (e) {
+    alert('网络错误，邮箱保存失败')
+  }
 }
 
 async function createSubscription() {
@@ -182,6 +192,7 @@ async function createSubscription() {
       body: JSON.stringify({
         topic,
         frequency: newFrequency.value,
+        email: userEmail.value || localStorage.getItem('email') || '',
       }),
     })
     const data = await res.json()

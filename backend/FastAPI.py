@@ -287,6 +287,7 @@ class ChatResponse(BaseModel):
 class SubscriptionCreate(BaseModel):
     topic: str
     frequency: str = "daily"  # daily / weekly
+    email: str = ""  # 可选：前端传入的邮箱兜底
 
 class UserUpdate(BaseModel):
     email: str
@@ -1167,6 +1168,16 @@ async def create_subscription(data: SubscriptionCreate, user: dict = Depends(ver
             "SELECT email FROM users WHERE id = ?", (user["user_id"],)
         ).fetchone()
         email = row["email"] if row and row["email"] else ""
+
+    # 如果数据库里没有邮箱，使用前端传入的邮箱兜底
+    if not email and data.email:
+        email = data.email
+        # 同时保存到用户表
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE users SET email = ? WHERE id = ?",
+                (email, user["user_id"])
+            )
 
     if not email:
         return {"code": 400, "message": "请先在个人中心设置邮箱"}
