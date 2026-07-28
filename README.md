@@ -141,7 +141,7 @@ knowhub/
 - Python 3.10+（3.9 亦可运行，部分语法特性不支持）
 - Node.js 18+
 - Redis（可选，用于缓存加速）
-- 重排模型（可选）：首次启动时自动从 HuggingFace 下载 `BAAI/bge-reranker-v2-m3`（约 1GB），需能访问 HuggingFace。如网络受限可提前手动下载放到 `backend/bge_reranker_v2_m3/` 目录
+- 重排模型（可选）：首次启动时自动从 HuggingFace 下载 `BAAI/bge-reranker-v2-m3`（约 2.2GB）。国内用户建议在 `.env` 中设置镜像加速：`HF_ENDPOINT=https://hf-mirror.com`
 
 > **💡 提示**：建议将项目克隆到**无中文字符的路径**（如 `D:\projects\knowhub`），避免 Windows 下 Python 路径编码问题。
 
