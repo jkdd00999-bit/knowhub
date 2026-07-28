@@ -1599,8 +1599,9 @@ def _run_scheduler_loop():
                         user_id="0",
                         conversation_id=0,
                     ))
-                    _log(f"任务 #{t['id']} 完成: {str(result.get('output', ''))[:120]}")
-                    # 更新 subscriptions 表的 last_run
+                    answer = result.get("output", "")
+                    _log(f"任务 #{t['id']} 完成: {answer[:120]}")
+
                     sub_id = t.get("subscription_id")
                     if sub_id:
                         try:
@@ -1609,8 +1610,28 @@ def _run_scheduler_loop():
                                     "UPDATE subscriptions SET last_run = ? WHERE id = ?",
                                     (now.strftime("%Y-%m-%d %H:%M:%S"), sub_id)
                                 )
-                        except:
-                            pass
+                                # 查询订阅邮箱
+                                row = conn.execute(
+                                    "SELECT email, topic FROM subscriptions WHERE id = ?",
+                                    (sub_id,)
+                                ).fetchone()
+
+                            if row and row["email"]:
+                                email = row["email"]
+                                topic = row["topic"]
+                                subject = f"【知智订阅推送】{topic}"
+                                body = (
+                                    f"你好！你订阅的「{topic}」已为你整理最新信息：\n\n"
+                                    f"{answer}\n\n"
+                                    f"---\n"
+                                    f"推送时间：{now.strftime('%Y-%m-%d %H:%M')}\n"
+                                    f"如需取消订阅，请登录知智 → 智能订阅 → 取消。"
+                                )
+                                from tools import send_email
+                                mail_result = send_email(email, subject, body)
+                                _log(f"邮件发送: {mail_result}")
+                        except Exception as me:
+                            _log(f"邮件发送异常: {me}")
                 except Exception as e:
                     _log(f"任务 #{t['id']} 失败: {e}")
         except Exception as e:
