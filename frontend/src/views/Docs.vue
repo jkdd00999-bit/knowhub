@@ -97,6 +97,7 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import SkeletonLoader from '../components/SkeletonLoader.vue'
 import { request } from '../composables/useRequest'
+import { getAuthHeaders } from '../utils/auth.js'
 
 const route = useRoute()
 const toast = inject('$toast', null)
@@ -164,7 +165,9 @@ async function loadDoc(id) {
   if (found && !found.content) {
     docLoading.value = true
     try {
-      const res = await request(`/api/docs/${id}`)
+      const res = await request(`/api/docs/${id}`, {
+        headers: getAuthHeaders(),
+      })
       if (res.ok) {
         const data = await res.json()
         Object.assign(found, data)

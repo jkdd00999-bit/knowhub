@@ -824,7 +824,7 @@ async def get_docs():
             row = dict(row)
             filename = row.get("filename", "")
             # 去掉 user_id_ 前缀用于显示
-            display_name = filename.split("_", 1)[-1] if "_" in filename else filename
+            display_name = filename.split("_", 2)[-1] if filename.count("_") >= 2 else filename.split("_", 1)[-1] if "_" in filename else filename
             title = display_name.rsplit(".", 1)[0] if "." in display_name else display_name
             ext = display_name.rsplit(".", 1)[-1].lower() if "." in display_name else ""
 
@@ -1159,8 +1159,12 @@ async def get_doc_detail(doc_id: int, request: Request):
 
         # 生成Markdown格式的内容（去掉 user_id_ 前缀）
         display_name = filename
-        if "_" in display_name:
-            display_name = display_name.split("_", 1)[-1]
+        # 去掉 {user_id}_{uuid}_ 前缀
+        parts = display_name.split("_")
+        if len(parts) >= 3:
+            display_name = "_".join(parts[2:])
+        elif len(parts) >= 2:
+            display_name = parts[-1]
         title = display_name.replace(".pdf", "").replace(".txt", "").replace(".docx", "").replace(".md", "")
         markdown_content = f"""# {title}
 
