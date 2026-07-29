@@ -115,20 +115,23 @@ onMounted(() => {
     sharedToastRef.value = toastRef.value
   }
   document.addEventListener('click', handleClickOutside)
+  // 监听 storage 变化（跨标签页同步登录状态）
+  window.addEventListener('storage', handleStorageChange)
 })
 
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
+  window.removeEventListener('storage', handleStorageChange)
 })
 
-// 监听 storage 变化（跨标签页同步登录状态）
-window.addEventListener('storage', (e) => {
+// 跨标签页同步登录状态
+function handleStorageChange(e) {
   if (e.key === 'token') {
     token.value = e.newValue || ''
     username.value = localStorage.getItem('username') || ''
     userRole.value = localStorage.getItem('userRole') || 'viewer'
   }
-})
+}
 </script>
 
 <style>

@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 import json
 import re
 import math
+import hashlib
 import random
 import threading
 import time
@@ -34,19 +35,24 @@ _llm = ChatOpenAI(
 _vector_store = None
 _hybrid_retriever = None
 _reranker = None
+_rag_init_lock = threading.Lock()
 
 
 def _ensure_rag():
-    """确保 RAG 组件已初始化（使用统一的初始化函数）"""
+    """确保 RAG 组件已初始化（线程安全的懒加载）"""
     global _vector_store, _hybrid_retriever, _reranker
     if _hybrid_retriever is not None:
         return
 
-    try:
-        from chunk import initialize_rag_components
-        _vector_store, _hybrid_retriever, _reranker = initialize_rag_components()
-    except Exception as e:
-        print(f"[WARN] RAG 初始化失败: {e}")
+    with _rag_init_lock:
+        # Double-check after acquiring lock
+        if _hybrid_retriever is not None:
+            return
+        try:
+            from chunk import initialize_rag_components
+            _vector_store, _hybrid_retriever, _reranker = initialize_rag_components()
+        except Exception as e:
+            print(f"[WARN] RAG 初始化失败: {e}")
 
 
 # ==================== 1. 文档工具 (8个) ====================
@@ -92,7 +98,10 @@ def search_with_rerank(query: str) -> str:
 def list_all_documents() -> str:
     """列出所有已上传的文档文件名。"""
     from pathlib import Path
-    files = sorted(f.name for f in Path("./documents").iterdir()
+    docs_dir = os.path.join(_TOOLS_BASE_DIR, "documents")
+    if not os.path.exists(docs_dir):
+        return "暂无文档"
+    files = sorted(f.name for f in Path(docs_dir).iterdir()
                    if f.suffix in (".pdf", ".txt") and not f.name.startswith("_"))
     if not files:
         return "暂无文档"
@@ -103,6 +112,10 @@ def list_all_documents() -> str:
 def get_document_info(filename: str) -> str:
     """获取指定文档的详细信息（大小、页数、分块数等）。"""
     filepath = f"./documents/{filename}"
+    # 路径验证，防止路径穿越
+    valid, err = _validate_path(filepath)
+    if not valid:
+        return f"❌ 安全限制: {err}"
     if not os.path.exists(filepath):
         return f"文档「{filename}」不存在"
     size = os.path.getsize(filepath) / 1024
@@ -113,9 +126,12 @@ def get_document_info(filename: str) -> str:
 def get_chunk_statistics() -> str:
     """获取知识库的统计信息（总文档数、总块数等）。"""
     from pathlib import Path
-    files = list(Path("./documents").glob("*.pdf")) + list(Path("./documents").glob("*.txt"))
+    docs_dir = os.path.join(_TOOLS_BASE_DIR, "documents")
+    if not os.path.exists(docs_dir):
+        return "📊 知识库统计\n文档数: 0"
+    files = list(Path(docs_dir).glob("*.pdf")) + list(Path(docs_dir).glob("*.txt"))
     files = [f for f in files if not f.name.startswith("_")]
-    return f"📊 知识库统计\n文档数: {len(files)}\n存储位置: ./documents"
+    return f"📊 知识库统计\n文档数: {len(files)}\n存储位置: {docs_dir}"
 
 
 # ==================== 3. 时间日期工具 (6个) ====================
@@ -151,7 +167,7 @@ def calculate_date_days(date_str: str, days: int) -> str:
         date = datetime.strptime(date_str, "%Y-%m-%d")
         result = date + timedelta(days=days)
         return f"{date_str} {'+' if days >= 0 else '-'} {abs(days)}天 = {result.strftime('%Y-%m-%d')}"
-    except:
+    except Exception:
         return "日期格式错误，请使用 YYYY-MM-DD 格式"
 
 
@@ -163,7 +179,7 @@ def days_between_dates(date1: str, date2: str) -> str:
         d2 = datetime.strptime(date2, "%Y-%m-%d")
         days = abs((d2 - d1).days)
         return f"{date1} 到 {date2} 相差 {days} 天"
-    except:
+    except Exception:
         return "日期格式错误"
 
 
@@ -218,8 +234,17 @@ def correct_grammar(text: str) -> str:
 
 # ==================== 7. 文件工具 (4个) ====================
 
-# 允许文件操作的目录白名单（相对于项目根目录）
-_ALLOWED_DIRS = ["./documents", "./data", "./vector_db", "./temp_files", "."]
+# 基于 __file__ 的绝对路径，避免 CWD 不同导致路径错误
+_TOOLS_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 允许文件操作的目录白名单（绝对路径）
+# 注意：不包含项目根目录，防止 Agent 读写 .env 等敏感文件
+_ALLOWED_DIRS = [
+    os.path.join(_TOOLS_BASE_DIR, "documents"),
+    os.path.join(_TOOLS_BASE_DIR, "data"),
+    os.path.join(_TOOLS_BASE_DIR, "vector_db"),
+    os.path.join(_TOOLS_BASE_DIR, "temp_files"),
+]
 
 def _validate_path(filepath: str) -> tuple[bool, str]:
     """
@@ -312,7 +337,7 @@ import sqlite3
 import os
 from typing import Optional
 
-DB_PATH = os.path.join(os.getenv("DB_DIR", "./data"), "knowhub.db")
+DB_PATH = os.path.join(os.getenv("DB_DIR", os.path.join(_TOOLS_BASE_DIR, "data")), "knowhub.db")
 
 def _get_memory_conn():
     """获取数据库连接"""
@@ -482,8 +507,8 @@ def update_conversation_summary(summary: str) -> str:
         )
         conn.commit()
         conn.close()
-    except:
-        pass
+    except Exception as e:
+        print(f"[WARN] 对话摘要持久化失败: {e}")
     return "对话摘要已更新"
 
 
@@ -1199,7 +1224,7 @@ def recall_knowledge(query: str = "", top_k: int = 3) -> str:
         conditions.append("(title LIKE ? OR content LIKE ? OR tags LIKE ?)")
         params.extend([like_w, like_w, like_w])
     
-    where_clause = " AND ".join(conditions)
+    where_clause = " OR ".join(conditions)
     sqlite_rows = conn.execute(
         f"SELECT id, title, content, tags, confidence FROM knowledge_nuggets "
         f"WHERE user_id=? AND ({where_clause}) "

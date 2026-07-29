@@ -99,7 +99,7 @@ async function loadConversations() {
       const data = await res.json()
       conversations.value = data.data || []
     }
-  } catch {}
+  } catch (e) { console.error(e) }
   loading.value = false
 }
 
@@ -117,7 +117,7 @@ async function openConversation(conv) {
       const convData = data.data
       detailMessages.value = Array.isArray(convData.messages) ? convData.messages : []
     }
-  } catch {}
+  } catch (e) { console.error(e) }
   detailLoading.value = false
 }
 
@@ -135,7 +135,7 @@ async function deleteConversation(convId) {
         selectedConv.value = null
       }
     }
-  } catch {}
+  } catch (e) { console.error(e) }
 }
 
 onMounted(loadConversations)

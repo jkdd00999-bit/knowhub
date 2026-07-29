@@ -150,7 +150,7 @@ def _deep_check(query: str, history: list, llm) -> dict:
         end = content.rfind("}") + 1
         if start >= 0 and end > start:
             return json.loads(content[start:end])
-    except:
+    except Exception:
         pass
     return {"is_vague": False, "reason": "LLM解析失败，按不模糊处理"}
 
@@ -188,7 +188,7 @@ def _generate_inquiry(query: str, doc_names: list, reason: str, llm) -> str:
     try:
         r = llm.invoke([HumanMessage(content=prompt)])
         return r.content.strip()
-    except:
+    except Exception:
         # 兜底：基于文档列表的简单反问
         if doc_names:
             short = [n.rsplit(".", 1)[0] for n in doc_names[:5]]

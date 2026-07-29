@@ -25,8 +25,8 @@ function handleUnauthorized() {
   localStorage.removeItem('username')
   localStorage.removeItem('userRole')
 
-  // 避免在登录页重复跳转
-  if (window.location.hash !== '#/login' && window.location.pathname !== '/login') {
+  // 避免在登录页重复跳转（项目使用 history 模式路由）
+  if (window.location.pathname !== '/login') {
     toast().error('登录已过期，请重新登录')
     // 跳转到登录页
     window.location.href = '/login'

@@ -148,53 +148,44 @@ def load_memory_node(state: AgentState) -> dict:
     try:
         from tools import _get_memory_conn
         conn = _get_memory_conn()
-        rows = conn.execute(
-            "SELECT memory_key, memory_value FROM user_memory WHERE user_id=?",
-            (user_id,)
-        ).fetchall()
-        conn.close()
-        if rows:
-            lines = ["【用户长久记忆】"]
-            for k, v in rows:
-                lines.append(f"  • {k}: {v}")
-            memory_parts.append("\n".join(lines))
-    except Exception:
-        pass
+        try:
+            # 一次性查询所有三类记忆，共用一个连接
+            rows = conn.execute(
+                "SELECT memory_key, memory_value FROM user_memory WHERE user_id=?",
+                (user_id,)
+            ).fetchall()
+            if rows:
+                lines = ["【用户长久记忆】"]
+                for k, v in rows:
+                    lines.append(f"  • {k}: {v}")
+                memory_parts.append("\n".join(lines))
 
-    try:
-        from tools import _get_memory_conn
-        conn = _get_memory_conn()
-        epi_rows = conn.execute(
-            """SELECT task_description, fix, success_count FROM episodic_memory
-               WHERE user_id=? ORDER BY hit_count DESC LIMIT 3""",
-            (user_id,)
-        ).fetchall()
-        conn.close()
-        if epi_rows:
-            lines = ["【相关经验记忆】"]
-            for desc, fix, cnt in epi_rows:
-                if fix:
-                    lines.append(f"  • {desc}: {fix} (成功{cnt}次)")
-            memory_parts.append("\n".join(lines))
-    except Exception:
-        pass
+            epi_rows = conn.execute(
+                """SELECT task_description, fix, success_count FROM episodic_memory
+                   WHERE user_id=? ORDER BY hit_count DESC LIMIT 3""",
+                (user_id,)
+            ).fetchall()
+            if epi_rows:
+                lines = ["【相关经验记忆】"]
+                for desc, fix, cnt in epi_rows:
+                    if fix:
+                        lines.append(f"  • {desc}: {fix} (成功{cnt}次)")
+                memory_parts.append("\n".join(lines))
 
-    try:
-        from tools import _get_memory_conn
-        conn = _get_memory_conn()
-        kn_rows = conn.execute(
-            """SELECT title, content FROM knowledge_nuggets
-               WHERE user_id=? ORDER BY hit_count DESC LIMIT 3""",
-            (user_id,)
-        ).fetchall()
-        conn.close()
-        if kn_rows:
-            lines = ["【知识沉淀】"]
-            for title, content in kn_rows:
-                lines.append(f"  • {title}: {content[:200]}")
-            memory_parts.append("\n".join(lines))
-    except Exception:
-        pass
+            kn_rows = conn.execute(
+                """SELECT title, content FROM knowledge_nuggets
+                   WHERE user_id=? ORDER BY hit_count DESC LIMIT 3""",
+                (user_id,)
+            ).fetchall()
+            if kn_rows:
+                lines = ["【知识沉淀】"]
+                for title, content in kn_rows:
+                    lines.append(f"  • {title}: {content[:200]}")
+                memory_parts.append("\n".join(lines))
+        finally:
+            conn.close()
+    except Exception as e:
+        print(f"[WARN] 记忆加载失败: {e}")
 
     memory_context = "\n\n".join(memory_parts) if memory_parts else ""
 
@@ -291,8 +282,8 @@ def query_clarify_node(state: AgentState) -> dict:
                     "needs_clarification": True,
                     "clarification_question": question,
                 }
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[WARN] 澄清判断失败: {e}")
 
     return {"needs_clarification": False, "clarification_question": ""}
 
@@ -329,7 +320,8 @@ def route_query_node(state: AgentState) -> dict:
         intent = resp.content.strip().lower()
         if intent not in ("web", "knowledge", "chat"):
             intent = "knowledge"
-    except Exception:
+    except Exception as e:
+        print(f"[WARN] 意图路由失败: {e}")
         intent = "knowledge"
 
     return {"intent": intent}
@@ -361,7 +353,8 @@ def hybrid_retrieval_node(state: AgentState) -> dict:
 
     try:
         reranked = _reranker.rerank(query, docs, top_k=8) if _reranker else docs[:8]
-    except Exception:
+    except Exception as e:
+        print(f"[WARN] 重排序失败: {e}")
         reranked = docs[:8]
 
     diverse = []
@@ -450,8 +443,8 @@ def validate_answer_node(state: AgentState) -> dict:
 
 
 # ==================== 节点 9: tool_calling ====================
-def tool_calling_node(state: AgentState) -> dict:
-    """Agent 工具调用（使用缓存的 AgentExecutor）"""
+async def tool_calling_node(state: AgentState) -> dict:
+    """Agent 工具调用（使用缓存的 AgentExecutor，异步执行避免阻塞事件循环）"""
     raw = state["raw_message"]
     intent = state.get("intent", "web")
     messages = state["messages"]
@@ -466,7 +459,8 @@ def tool_calling_node(state: AgentState) -> dict:
     # 使用缓存的 AgentExecutor
     executor = _get_tool_calling_executor()
 
-    result = executor.invoke({
+    # 异步调用，避免阻塞事件循环
+    result = await executor.ainvoke({
         "input": raw,
         "chat_history": chat_history
     })

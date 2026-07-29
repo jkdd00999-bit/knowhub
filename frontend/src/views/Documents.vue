@@ -84,6 +84,9 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import SkeletonLoader from '../components/SkeletonLoader.vue'
+import { useToast } from '../composables/useToast'
+
+const toast = useToast()
 
 const router = useRouter()
 const fileInput = ref(null)
@@ -126,7 +129,7 @@ function handleDrop(event) {
 async function uploadFiles(files) {
   const token = localStorage.getItem('token')
   if (!token) {
-    alert('请先登录')
+    toast.warning('请先登录')
     router.push('/login')
     return
   }
@@ -169,7 +172,7 @@ async function uploadFiles(files) {
 
     } catch (error) {
       console.error('上传错误:', error)
-      alert(`上传 ${file.name} 失败: ${error.message}`)
+      toast.error(`上传 ${file.name} 失败`)
     }
   }
 
@@ -185,7 +188,7 @@ async function uploadFiles(files) {
     fileInput.value.value = ''
   }
 
-  alert(`成功上传 ${files.length} 个文件！`)
+  toast.success(`成功上传 ${files.length} 个文件！`)
 }
 
 async function loadDocuments() {
@@ -234,13 +237,13 @@ async function deleteDocument(docId) {
 
     if (response.ok) {
       await loadDocuments()
-      alert('删除成功')
+      toast.success('删除成功')
     } else {
       throw new Error('删除失败')
     }
   } catch (error) {
     console.error('删除错误:', error)
-    alert('删除失败: ' + error.message)
+    toast.error('删除失败')
   }
 }
 

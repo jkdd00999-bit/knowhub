@@ -38,8 +38,10 @@ DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY")
 QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 QWEN_MODEL = "qwen3.7-plus"
 
-DOCUMENTS_DIR = "./documents"
-VECTOR_DB_DIR = "./vector_db"
+# 使用基于 __file__ 的绝对路径，避免 CWD 不同导致路径错误
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DOCUMENTS_DIR = os.path.join(_BASE_DIR, "documents")
+VECTOR_DB_DIR = os.path.join(_BASE_DIR, "vector_db")
 # ==================== 全局变量（供 agent.py 调用）====================
 hybrid_retriever = None
 reranker = None

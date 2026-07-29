@@ -141,7 +141,7 @@ const userId = ref(localStorage.getItem('userId') || '')
 const statsLoading = ref(true)
 const stats = ref({
   conversations: 0,
-  knowledge: 4,
+  knowledge: 0,
   files: 0,
 })
 const recentConversations = ref([])
@@ -176,7 +176,9 @@ async function loadStats() {
       stats.value.files = fileList.length
       files.value = fileList.slice(0, 5)
     }
-  } catch {}
+  } catch (e) {
+    console.error('Dashboard load error:', e)
+  }
   statsLoading.value = false
 }
 

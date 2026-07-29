@@ -267,7 +267,7 @@ async function loadDocs() {
     if (faqRes.ok) {
       faqList.value = await faqRes.json()
     }
-  } catch {}
+  } catch (e) { console.error(e) }
   loading.value = false
 }
 

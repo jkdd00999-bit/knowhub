@@ -32,6 +32,7 @@ documents/
 
 # 日志文件
 *.log
+scheduler.log
 
 # IDE和编辑器
 .idea/
@@ -67,3 +68,11 @@ tests/
 test_*.py
 *.md
 LICENSE
+
+# 定时任务和调度
+scheduled_tasks.json
+
+# 调试文件
+*.egg-info/
+.coverage
+htmlcov/

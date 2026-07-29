@@ -25,6 +25,7 @@ services:
       - HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
       - REDIS_HOST=${REDIS_HOST:-redis}
       - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-knowhub_redis密码}
     restart: unless-stopped
     networks:
       - knowhub-net
@@ -43,12 +44,11 @@ services:
     networks:
       - knowhub-net
 
-  # Redis 缓存
+  # Redis 缓存（仅内部网络访问，不暴露端口到宿主机）
   redis:
     image: redis:7-alpine
     container_name: knowhub-redis
-    ports:
-      - "6379:6379"
+    command: redis-server --requirepass ${REDIS_PASSWORD:-knowhub_redis密码}
     volumes:
       - redis-data:/data
     restart: unless-stopped

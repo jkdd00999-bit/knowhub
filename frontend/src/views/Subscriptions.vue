@@ -88,6 +88,9 @@ import { ref, onMounted } from 'vue'
 import SkeletonLoader from '../components/SkeletonLoader.vue'
 import { formatDate } from '../utils/date.js'
 import { getAuthHeaders } from '../utils/auth.js'
+import { useToast } from '../composables/useToast'
+
+const toast = useToast()
 
 const loading = ref(true)
 const creating = ref(false)
@@ -126,7 +129,7 @@ async function loadSubscriptions() {
       const data = await res.json()
       subscriptions.value = data.data || []
     }
-  } catch {}
+  } catch (e) { console.error(e) }
   loading.value = false
 }
 
@@ -155,10 +158,10 @@ async function saveEmail() {
       newEmail.value = ''
     } else {
       const err = await res.json().catch(() => ({}))
-      alert(err.detail || '邮箱保存失败，请重新登录后再试')
+      toast.error('邮箱保存失败，请重新登录后再试')
     }
   } catch (e) {
-    alert('网络错误，邮箱保存失败')
+    toast.error('网络错误，邮箱保存失败')
   }
 }
 
@@ -185,10 +188,10 @@ async function createSubscription() {
       newTopic.value = ''
       await loadSubscriptions()
     } else {
-      alert(data.message || '创建失败')
+      toast.error(data.message || '创建失败')
     }
   } catch {
-    alert('创建失败，请重试')
+    toast.error('创建失败，请重试')
   }
   creating.value = false
 }
@@ -204,7 +207,7 @@ async function cancelSubscription(subId) {
     if (res.ok) {
       subscriptions.value = subscriptions.value.filter(s => s.id !== subId)
     }
-  } catch {}
+  } catch (e) { console.error(e) }
 }
 
 onMounted(async () => {

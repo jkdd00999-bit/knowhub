@@ -13,13 +13,14 @@ from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import uvicorn
 import re
 import os
 import shutil
-import json 
+import json
 import sqlite3
+import uuid
 from contextlib import contextmanager
 from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -68,7 +69,7 @@ def get_db():
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.execute("PRAGMA journal_mode=WAL")
     _busy_timeout = int(os.getenv("SQLITE_BUSY_TIMEOUT", "5000"))
-    conn.execute(f"PRAGMA busy_timeout={_busy_timeout}")
+    conn.execute("PRAGMA busy_timeout=?", (_busy_timeout,))
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -235,7 +236,7 @@ security = HTTPBearer()
 
 def create_access_token(data: dict):
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -258,25 +259,44 @@ from collections import defaultdict
 # 速率限制配置
 RATE_LIMIT_WINDOW = 60  # 时间窗口（秒）
 RATE_LIMIT_MAX_REQUESTS = 10  # 窗口内最大请求数
+RATE_LIMIT_MAX_ENTRIES = 10000  # 最大 IP 条目数，防止内存泄漏
 
-# 存储每个 IP 的请求记录: {ip: [(timestamp, ...), ...]}
+# 存储每个 IP 的请求记录: {ip: [timestamp, ...]}
 _rate_limit_store: dict = defaultdict(list)
+_rate_limit_last_cleanup = 0.0
 
 def check_rate_limit(request: Request):
     """
     检查请求是否超过速率限制。
     用于登录、注册等敏感接口，防止暴力破解。
     """
-    # 获取客户端 IP（考虑代理）
+    global _rate_limit_last_cleanup
+
+    # 只使用 request.client.host，不信任 X-Forwarded-For（可被伪造）
     client_ip = request.client.host if request.client else "unknown"
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        client_ip = forwarded.split(",")[0].strip()
-
     now = time.time()
-    key = f"{client_ip}"
+    key = client_ip
 
-    # 清理过期记录
+    # 定期清理过期条目（每 5 分钟一次）
+    if now - _rate_limit_last_cleanup > 300:
+        _rate_limit_last_cleanup = now
+        expired_keys = [
+            k for k, v in _rate_limit_store.items()
+            if not v or now - v[-1] > RATE_LIMIT_WINDOW
+        ]
+        for k in expired_keys:
+            del _rate_limit_store[k]
+
+    # 内存保护：超过上限时清理最旧的条目
+    if len(_rate_limit_store) > RATE_LIMIT_MAX_ENTRIES:
+        sorted_keys = sorted(
+            _rate_limit_store.keys(),
+            key=lambda k: _rate_limit_store[k][-1] if _rate_limit_store[k] else 0
+        )
+        for k in sorted_keys[:len(sorted_keys) // 2]:
+            del _rate_limit_store[k]
+
+    # 清理当前 IP 的过期记录
     _rate_limit_store[key] = [
         ts for ts in _rate_limit_store[key]
         if now - ts < RATE_LIMIT_WINDOW
@@ -292,9 +312,16 @@ def check_rate_limit(request: Request):
     # 记录本次请求
     _rate_limit_store[key].append(now)
 
+# ==================== 向量库并发锁 ====================
+# 保护向量数据库和 chunk 缓存的 read-modify-write 操作
+import asyncio
+_vector_store_lock = asyncio.Lock()
+
 # ==================== Pydantic 模型 ====================
+from typing import Literal
+
 class UserRegister(BaseModel):
-    username: str = Field(..., min_length=2, max_length=20)
+    username: str = Field(..., min_length=2, max_length=20, pattern=r'^[a-zA-Z0-9_一-龥]+$')
     password: str = Field(..., min_length=6, max_length=128)
 
 class UserLogin(BaseModel):
@@ -308,15 +335,15 @@ class TokenResponse(BaseModel):
     user_id: int
 
 class ConversationCreate(BaseModel):
-    title: str = "新会话"
+    title: str = Field(default="新会话", max_length=200)
 
 class ConversationUpdate(BaseModel):
-    title: str
-    messages: List[dict]
-    files: List[dict]
+    title: str = Field(..., max_length=200)
+    messages: List[dict] = Field(default_factory=list)
+    files: List[dict] = Field(default_factory=list)
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(..., min_length=1, max_length=10000)
     conversation_id: Optional[int] = None
 
 class ChatResponse(BaseModel):
@@ -326,12 +353,22 @@ class ChatResponse(BaseModel):
     source: str = ""
 
 class SubscriptionCreate(BaseModel):
-    topic: str
-    frequency: str = "daily"  # daily / weekly
-    email: str = ""  # 可选：前端传入的邮箱兜底
+    topic: str = Field(..., min_length=1, max_length=200)
+    frequency: Literal["daily", "weekly"] = "daily"
+    email: str = Field(default="", max_length=200)  # 可选：前端传入的邮箱兜底
 
 class UserUpdate(BaseModel):
-    email: str
+    email: str = Field(default="", max_length=200)
+
+class DocCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    category: str = Field(default="其他", max_length=50)
+    content: str = Field(default="", max_length=5_000_000)
+
+class DocUpdate(BaseModel):
+    title: Optional[str] = Field(default=None, max_length=200)
+    category: Optional[str] = Field(default=None, max_length=50)
+    content: Optional[str] = Field(default=None, max_length=5_000_000)
 
 # ==================== FastAPI 应用 ====================
 app = FastAPI(title="知智 KnowHub API")
@@ -342,10 +379,10 @@ import os as _cors_os
 _cors_origins = _cors_os.getenv("CORS_ORIGINS", "http://localhost:8000,http://localhost:5173,http://localhost")
 _cors_origin_list = [o.strip() for o in _cors_origins.split(",") if o.strip()]
 
-# 安全检查：如果配置了 "*" 则记录警告
+# 安全检查：禁止配置 "*" 配合 credentials
 if "*" in _cors_origin_list:
-    import warnings
-    warnings.warn("⚠️ CORS 配置了 '*'，生产环境应指定具体域名", stacklevel=2)
+    print("[ERROR] ⚠️ CORS 不允许配置 '*' 配合 allow_credentials=True，已回退为默认本地地址。请在 .env 中设置 CORS_ORIGINS 为具体域名。")
+    _cors_origin_list = ["http://localhost:8000", "http://localhost:5173", "http://localhost"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -601,8 +638,9 @@ async def upload_file(file: UploadFile = File(...), user: dict = Depends(verify_
     if len(content) > MAX_FILE_SIZE:
         return {"code": 400, "message": f"文件过大，最大支持 {MAX_FILE_SIZE // 1024 // 1024}MB"}
 
-    # 3. 保存文件
-    stored_filename = f"{user['user_id']}_{os.path.basename(filename)}"
+    # 3. 保存文件（加入 UUID 防止同名覆写）
+    unique_id = uuid.uuid4().hex[:8]
+    stored_filename = f"{user['user_id']}_{unique_id}_{os.path.basename(filename)}"
     filepath = os.path.join(DOCUMENTS_DIR, stored_filename)
     with open(filepath, "wb") as f:
         f.write(content)
@@ -633,19 +671,21 @@ async def upload_file(file: UploadFile = File(...), user: dict = Depends(verify_
     splitter = HierarchicalTextSplitter()
     chunks = splitter.split_documents(docs)
 
-    vector_store = load_vector_store()
-    if vector_store is None:
-        vector_store = create_vector_store(chunks)
-    else:
-        vector_store = add_new_documents_to_store(vector_store, chunks)
+    # 向量库和 chunk 缓存操作加锁，防止并发 read-modify-write 竞态
+    async with _vector_store_lock:
+        vector_store = load_vector_store()
+        if vector_store is None:
+            vector_store = create_vector_store(chunks)
+        else:
+            vector_store = add_new_documents_to_store(vector_store, chunks)
 
-    # 更新 chunk 缓存（追加新文件的 chunks，下次启动免分块）
-    existing_chunks = load_cached_chunks()
-    existing_chunks.extend(chunks)
-    save_chunks_cache(existing_chunks)
-    chunked_files = get_chunked_files()
-    chunked_files.add(stored_filename)
-    save_chunked_files(chunked_files)
+        # 更新 chunk 缓存（追加新文件的 chunks，下次启动免分块）
+        existing_chunks = load_cached_chunks()
+        existing_chunks.extend(chunks)
+        save_chunks_cache(existing_chunks)
+        chunked_files = get_chunked_files()
+        chunked_files.add(stored_filename)
+        save_chunked_files(chunked_files)
 
     # ========== 保存元数据到数据库（存储实际文件名，便于删除时定位）==========
     with get_db() as conn:
@@ -1008,8 +1048,20 @@ async def get_unanswered_questions(user: dict = Depends(verify_token)):
         return []
 
 @app.get("/api/docs/{doc_id}")
-async def get_doc_detail(doc_id: int):
-    """获取文档详情，包含内容"""
+async def get_doc_detail(doc_id: int, request: Request):
+    """获取文档详情，包含内容。未登录返回元数据，登录后返回完整内容。"""
+    # 尝试获取当前用户（不强制要求登录）
+    current_user = None
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            user_id = int(payload.get("sub"))
+            current_user = {"user_id": user_id}
+        except Exception:
+            pass
+
     content = ""
     try:
         with get_db() as conn:
@@ -1106,7 +1158,8 @@ async def get_doc_detail(doc_id: int):
                     if not content:
                         content = "*PDF内容提取失败，可能是扫描版PDF*"
                 except Exception as e:
-                    content = f"PDF解析失败: {str(e)}"
+                    print(f"[WARN] PDF解析失败: {e}")
+                    content = "*PDF解析失败，请检查文件格式*"
             elif filepath.endswith('.docx'):
                 try:
                     from docx import Document as DocxDocument
@@ -1116,7 +1169,12 @@ async def get_doc_detail(doc_id: int):
                     if not content:
                         content = "*Word文档内容提取失败*"
                 except Exception as e:
-                    content = f"Word文档解析失败: {str(e)}"
+                    print(f"[WARN] Word解析失败: {e}")
+                    content = "*Word文档解析失败，请检查文件格式*"
+
+        # 未登录用户不返回完整内容
+        if not current_user:
+            content = "*请登录后查看完整内容*"
 
         # 生成Markdown格式的内容（去掉 user_id_ 前缀）
         display_name = filename

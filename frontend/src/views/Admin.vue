@@ -109,7 +109,7 @@ async function fetchData() {
     ])
     if (docsRes.ok) docs.value = await docsRes.json()
     if (uRes.ok) unanswered.value = await uRes.json()
-  } catch {}
+  } catch (e) { console.error(e) }
   loading.value = false
 }
 
@@ -139,7 +139,7 @@ async function saveDoc() {
       toast?.success(isEdit ? '文档已更新' : '文档已创建')
       await fetchData()
     }
-  } catch {}
+  } catch (e) { console.error(e) }
   saving.value = false
 }
 
@@ -149,7 +149,7 @@ async function deleteDoc(id) {
     await request(`/api/docs/${id}`, { method: 'DELETE', silent: true })
     toast?.success('文档已删除')
     await fetchData()
-  } catch {}
+  } catch (e) { console.error(e) }
 }
 </script>
 

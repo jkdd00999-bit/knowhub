@@ -170,7 +170,7 @@ async function loadDoc(id) {
         Object.assign(found, data)
         attachCopyButtons()
       }
-    } catch {}
+    } catch (e) { console.error(e) }
     docLoading.value = false
   } else if (found?.content) {
     attachCopyButtons()
