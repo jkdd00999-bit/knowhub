@@ -80,3 +80,4 @@ def _auto_extract_all(user_id: str, question: str, answer: str,
         _auto_extract_knowledge(user_id, question, answer, messages, conv_id)
     except Exception as e:
         print(f"[WARN] memory._auto_extract_knowledge 失败: {e}")
+

@@ -244,3 +244,4 @@ onMounted(loadConversations)
   .message { max-width: 95%; }
 }
 </style>
+

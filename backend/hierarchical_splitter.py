@@ -231,3 +231,4 @@ class HierarchicalTextSplitter:
 def split_documents_with_hierarchy(documents):
     splitter = HierarchicalTextSplitter()
     return splitter.split_documents(documents)
+

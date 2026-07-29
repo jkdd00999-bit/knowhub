@@ -258,3 +258,4 @@ class ClarifySkill:
         reason = deep.get("reason", fast.get("reason", "问题不够明确"))
         reply = _generate_inquiry(query, doc_names, reason, self.llm)
         return {"needs_clarify": True, "message": reply, "method": "llm"}
+

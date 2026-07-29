@@ -550,3 +550,4 @@ onMounted(loadDocs)
   .modal-content { max-height: 90vh; }
 }
 </style>
+
