@@ -424,48 +424,7 @@ prompt_template = """你是知智，企业级智能知识助手。请根据以�
 
 PROMPT = PromptTemplate(template=prompt_template, input_variables=["context", "question", "history"])
 
-def _auto_extract_memory(user_id: str, question: str, answer: str):
-    """自动从对话中提取用户的长期记忆（名字、偏好、身份等），存入 SQLite"""
-    try:
-        from tools import _get_memory_conn
-        prompt = (
-            f"用户的提问：{question[:300]}\n"
-            f"助手的回答：{answer[:300]}\n\n"
-            f"从以上对话中提取关于这个用户的重要信息。只提取明确的信息，不要推测。\n"
-            f"提取项包括：用户名、职业、偏好风格、关注领域、重要上下文等。\n"
-            f"如果没有可提取的新信息，回复 EMPTY。\n"
-            f"如果有，用 JSON 格式回复：{{\"key\": \"value\", ...}}\n"
-            f"只用中文回复，不要其他内容。"
-        )
-        resp = llm.invoke(prompt)
-        text = resp.content.strip()
-        if "EMPTY" in text or len(text) < 5:
-            return
-
-        # 尝试解析 JSON
-        import re as _re
-        json_match = _re.search(r'\{[^{}]+\}', text)
-        if not json_match:
-            return
-        data = json.loads(json_match.group())
-
-        conn = _get_memory_conn()
-        try:
-            for k, v in data.items():
-                if isinstance(v, str) and len(v) >= 1 and len(k) >= 1:
-                    conn.execute(
-                        "INSERT OR REPLACE INTO user_memory (user_id, memory_key, memory_value, updated_at) "
-                        "VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
-                        (user_id, k.strip(), v.strip()[:500])
-                    )
-            conn.commit()
-        finally:
-            conn.close()
-        if data:
-            print(f"🧠 自动记忆提取: {list(data.keys())}")
-    except Exception as e:
-        print(f"[WARN] 自动记忆提取失败: {e}")
-
+from memory import _auto_extract_memory
 
 # ==================== 辅助函数 ====================
 def extract_file_metadata(filepath: str, text: str) -> dict:
