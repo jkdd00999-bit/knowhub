@@ -159,7 +159,7 @@ docker-compose up -d
 
 ## 📄 许可证
 
-MIT License
+本项目仅供学习与展示使用。
 
 ---
 

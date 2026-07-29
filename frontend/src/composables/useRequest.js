@@ -24,6 +24,8 @@ function handleUnauthorized() {
   localStorage.removeItem('token')
   localStorage.removeItem('username')
   localStorage.removeItem('userRole')
+  localStorage.removeItem('userId')
+  localStorage.removeItem('email')
 
   // 避免在登录页重复跳转（项目使用 history 模式路由）
   if (window.location.pathname !== '/login') {

@@ -194,9 +194,9 @@ npm run dev
 # 确保在项目根目录
 cd knowhub
 
-# 配置环境变量
-cp backend/.env.example backend/.env
-# 编辑 backend/.env，填写 DASHSCOPE_API_KEY、TAVILY_API_KEY、JWT_SECRET_KEY 等
+# 配置环境变量（docker-compose 读取根目录 .env）
+cp .env.example .env
+# 编辑 .env，填写 DASHSCOPE_API_KEY、TAVILY_API_KEY、JWT_SECRET_KEY 等必填项
 
 # 启动所有服务（后端 + 前端 + Redis）
 docker-compose up -d
@@ -207,7 +207,7 @@ docker-compose up -d
 - 后端 API：http://localhost:8000
 - API 文档：http://localhost:8000/docs
 
-> **💡 提示**：国内用户建议在 `backend/.env` 中设置 HuggingFace 镜像加速：`HF_ENDPOINT=https://hf-mirror.com`
+> **💡 提示**：国内用户建议在 `.env` 中设置 HuggingFace 镜像加速：`HF_ENDPOINT=https://hf-mirror.com`
 
 ---
 

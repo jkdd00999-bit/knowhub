@@ -494,27 +494,26 @@ def clear_memory(user_id: Optional[str] = None) -> str:
 @tool
 def update_conversation_summary(summary: str) -> str:
     """更新对话摘要（自动维护）。"""
-    global _conversation_summary
-    _conversation_summary = summary
     # 持久化到 SQLite，重启不丢失
     try:
         uid = _get_current_user_id()
         conn = _get_memory_conn()
-        conn.execute(
-            "INSERT OR REPLACE INTO user_memory (user_id, memory_key, memory_value, updated_at) "
-            "VALUES (?, '__conversation_summary__', ?, CURRENT_TIMESTAMP)",
-            (uid, summary[:2000])
-        )
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO user_memory (user_id, memory_key, memory_value, updated_at) "
+                "VALUES (?, '__conversation_summary__', ?, CURRENT_TIMESTAMP)",
+                (uid, summary[:2000])
+            )
+            conn.commit()
+        finally:
+            conn.close()
     except Exception as e:
         print(f"[WARN] 对话摘要持久化失败: {e}")
     return "对话摘要已更新"
 
 
 # 全局内存缓存（用于热数据加速，可选）
-_memory_cache: dict = {}
-_conversation_summary: str = ""
+# 全局内存缓存 — 已移除（未使用的死代码）
 
 
 # ==================== 情节记忆（Episodic Memory）====================
@@ -1436,9 +1435,20 @@ def _load_tasks() -> list:
 
 
 def _save_tasks(tasks: list):
-    """保存定时任务到 JSON"""
-    with open(SCHEDULE_FILE, "w", encoding="utf-8") as f:
-        json.dump(tasks, f, ensure_ascii=False, indent=2)
+    """保存定时任务到 JSON（原子写入防损坏）"""
+    import tempfile
+    dir_name = os.path.dirname(SCHEDULE_FILE)
+    fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(tasks, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, SCHEDULE_FILE)  # 原子替换
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def _parse_time(time_str: str) -> str:

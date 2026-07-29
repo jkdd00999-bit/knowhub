@@ -43,8 +43,8 @@ def optimize_query(raw_query: str, llm) -> List[str]:
     try:
         response = llm.invoke(OPTIMIZER_PROMPT + f"\n输入：\"{raw_query}\"\n输出：")
         content = response.content.strip()
-        # 用正则提取 JSON 数组
-        match = re.search(r'\[.*\]', content, re.S)
+        # 用正则提取 JSON 数组（非贪婪 + 不嵌套）
+        match = re.search(r'\[[^\[\]]*\]', content)
         if match:
             candidates = json.loads(match.group())
             # 去重、限制3个、原词优先

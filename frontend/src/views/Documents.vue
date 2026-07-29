@@ -153,23 +153,26 @@ async function uploadFiles(files) {
         }
       }, 200)
 
-      const response = await request('/api/upload', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        body: formData
-      })
+      try {
+        const response = await request('/api/upload', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          body: formData
+        })
 
-      clearInterval(progressInterval)
-      uploadProgress.value = 100
+        uploadProgress.value = 100
 
-      if (!response.ok) {
-        throw new Error(`上传失败: ${response.statusText}`)
+        if (!response.ok) {
+          throw new Error(`上传失败: ${response.statusText}`)
+        }
+
+        const result = await response.json()
+        console.log('上传成功:', result)
+      } finally {
+        clearInterval(progressInterval)
       }
-
-      const result = await response.json()
-      console.log('上传成功:', result)
 
     } catch (error) {
       console.error('上传错误:', error)

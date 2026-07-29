@@ -729,21 +729,38 @@ async def get_user_files(user: dict = Depends(verify_token)):
     return {"code": 200, "data": files}
 
 # ==================== 问答接口 ====================
-def _save_chat(conv_id: int, user_id: int, messages: list, conv_title: str,
+_chat_locks: dict = {}
+_chat_locks_guard = asyncio.Lock()
+
+async def _get_chat_lock(conv_id: int) -> asyncio.Lock:
+    """获取会话级锁，防止同一会话并发写入导致消息丢失"""
+    async with _chat_locks_guard:
+        if conv_id not in _chat_locks:
+            _chat_locks[conv_id] = asyncio.Lock()
+        return _chat_locks[conv_id]
+
+def _save_chat(conv_id: int, user_id: int, conv_title: str,
                question: str, answer: str) -> int:
-    """保存消息到数据库，返回 conv_id"""
+    """保存消息到数据库，返回 conv_id。内部重新读取最新消息防并发覆盖。"""
+    with get_db() as conn:
+        row = conn.execute("SELECT messages, title FROM conversations WHERE id=?", (conv_id,)).fetchone()
+        if not row:
+            return conv_id
+        messages = json.loads(row["messages"]) if row["messages"] else []
+        current_title = row["title"] or conv_title
+
     messages.append({"role": "user", "content": question,
                      "timestamp": datetime.now().isoformat()})
     messages.append({"role": "assistant", "content": answer,
                      "timestamp": datetime.now().isoformat()})
 
-    if conv_title == "新会话" and sum(1 for m in messages if m["role"] == "user") == 1:
-        conv_title = question[:30] + ("..." if len(question) > 30 else "")
+    if current_title == "新会话" and sum(1 for m in messages if m["role"] == "user") == 1:
+        current_title = question[:30] + ("..." if len(question) > 30 else "")
 
     with get_db() as conn:
         conn.execute(
             "UPDATE conversations SET title=?, messages=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-            (conv_title, json.dumps(messages, ensure_ascii=False), conv_id))
+            (current_title, json.dumps(messages, ensure_ascii=False), conv_id))
     return conv_id
 
 
@@ -786,7 +803,7 @@ async def chat(request: ChatRequest, user: dict = Depends(verify_token)):
                 result = get_file_metadata.invoke({"filename": filename})
                 if "未找到" not in result:
                     answer = result
-                    conv_id = _save_chat(conv_id, user["user_id"], messages, conv_title,
+                    conv_id = _save_chat(conv_id, user["user_id"], conv_title,
                                          request.message, answer)
                     return ChatResponse(answer=answer, conversation_id=conv_id)
 
@@ -813,9 +830,11 @@ async def chat(request: ChatRequest, user: dict = Depends(verify_token)):
         references = result.get("references", [])
         source = result.get("source", "")
 
-        # 保存聊天
-        conv_id = _save_chat(conv_id, user["user_id"], messages, conv_title,
-                             request.message, answer)
+        # 保存聊天（会话级锁防并发）
+        chat_lock = await _get_chat_lock(conv_id)
+        async with chat_lock:
+            conv_id = _save_chat(conv_id, user["user_id"], conv_title,
+                                 request.message, answer)
 
         return ChatResponse(answer=answer, conversation_id=conv_id,
                             references=references, source=source)

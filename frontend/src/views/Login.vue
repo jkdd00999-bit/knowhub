@@ -52,6 +52,7 @@
 <script setup>
 import { ref, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { request } from '../composables/useRequest'
 
 const router = useRouter()
 const route = useRoute()
@@ -68,13 +69,14 @@ async function handleLogin() {
   loading.value = true
 
   try {
-    const res = await fetch('/api/auth/login', {
+    const res = await request('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         username: form.username,
         password: form.password,
       }),
+      silent: true,
     })
 
     if (!res.ok) {

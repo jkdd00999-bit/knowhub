@@ -68,6 +68,7 @@
 <script setup>
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
+import { request } from '../composables/useRequest'
 
 const router = useRouter()
 const loading = ref(false)
@@ -111,13 +112,14 @@ async function handleRegister() {
   loading.value = true
 
   try {
-    const res = await fetch('/api/auth/register', {
+    const res = await request('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         username: form.username,
         password: form.password,
       }),
+      silent: true,
     })
 
     const data = await res.json()
