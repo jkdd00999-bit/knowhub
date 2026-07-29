@@ -54,10 +54,14 @@ USE_SOURCE_RANKER = True     # 来源权威性排序 Skill
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "") or None
 CACHE_TTL = 3600
 
 try:
-    redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True)
+    redis_client = redis.Redis(
+        host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB,
+        password=REDIS_PASSWORD, decode_responses=True
+    )
     redis_client.ping()
     print("✅ Redis 连接成功，缓存已启用")
 except Exception as e:

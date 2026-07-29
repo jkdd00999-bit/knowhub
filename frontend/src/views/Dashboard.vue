@@ -134,6 +134,7 @@ import { ref, onMounted } from 'vue'
 import SkeletonLoader from '../components/SkeletonLoader.vue'
 import { formatDate } from '../utils/date.js'
 import { getAuthHeaders } from '../utils/auth.js'
+import { request } from '../composables/useRequest'
 
 const username = ref(localStorage.getItem('username') || '')
 const userId = ref(localStorage.getItem('userId') || '')
@@ -159,8 +160,8 @@ async function loadStats() {
     const headers = getAuthHeaders()
 
     const [convRes, filesRes] = await Promise.all([
-      fetch('/api/conversations', { headers }),
-      fetch('/api/files', { headers }),
+      request('/api/conversations', { headers, silent: true }),
+      request('/api/files', { headers, silent: true }),
     ])
 
     if (convRes.ok) {

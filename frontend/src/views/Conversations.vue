@@ -71,6 +71,7 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { formatDate } from '../utils/date.js'
 import { getAuthHeaders } from '../utils/auth.js'
+import { request } from '../composables/useRequest'
 
 const loading = ref(true)
 const detailLoading = ref(false)
@@ -92,7 +93,7 @@ function renderMarkdown(text) {
 async function loadConversations() {
   loading.value = true
   try {
-    const res = await fetch('/api/conversations', {
+    const res = await request('/api/conversations', {
       headers: getAuthHeaders(),
     })
     if (res.ok) {
@@ -109,7 +110,7 @@ async function openConversation(conv) {
   detailMessages.value = []
 
   try {
-    const res = await fetch(`/api/conversations/${conv.id}`, {
+    const res = await request(`/api/conversations/${conv.id}`, {
       headers: getAuthHeaders(),
     })
     if (res.ok) {
@@ -125,7 +126,7 @@ async function deleteConversation(convId) {
   if (!confirm('确定要删除这个对话记录吗？')) return
 
   try {
-    const res = await fetch(`/api/conversations/${convId}`, {
+    const res = await request(`/api/conversations/${convId}`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
     })

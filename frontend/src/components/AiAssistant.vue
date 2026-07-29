@@ -84,20 +84,20 @@ async function send() {
   scrollBottom()
 
   try {
-    // 获取认证token（如果已登录）
     const token = localStorage.getItem('token')
     const headers = { 'Content-Type': 'application/json' }
     if (token) {
       headers['Authorization'] = `Bearer ${token}`
     }
 
-    const resp = await fetch('/api/chat', {
+    const resp = await request('/api/chat', {
       method: 'POST',
       headers,
       body: JSON.stringify({
         message: text,
         conversation_id: null,
       }),
+      silent: true,
     })
 
     if (!resp.ok) {

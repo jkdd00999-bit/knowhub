@@ -448,19 +448,21 @@ def _auto_extract_memory(user_id: str, question: str, answer: str):
         data = json.loads(json_match.group())
 
         conn = _get_memory_conn()
-        for k, v in data.items():
-            if isinstance(v, str) and len(v) >= 1 and len(k) >= 1:
-                conn.execute(
-                    "INSERT OR REPLACE INTO user_memory (user_id, memory_key, memory_value, updated_at) "
-                    "VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
-                    (user_id, k.strip(), v.strip()[:500])
-                )
-        conn.commit()
-        conn.close()
+        try:
+            for k, v in data.items():
+                if isinstance(v, str) and len(v) >= 1 and len(k) >= 1:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO user_memory (user_id, memory_key, memory_value, updated_at) "
+                        "VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+                        (user_id, k.strip(), v.strip()[:500])
+                    )
+            conn.commit()
+        finally:
+            conn.close()
         if data:
             print(f"🧠 自动记忆提取: {list(data.keys())}")
-    except Exception:
-        pass  # 静默失败，不影响正常回答
+    except Exception as e:
+        print(f"[WARN] 自动记忆提取失败: {e}")
 
 
 # ==================== 辅助函数 ====================
@@ -924,19 +926,19 @@ def sanitize_title(title: str) -> str:
 
 
 @app.post("/api/docs")
-async def create_doc(request: Request, user: dict = Depends(verify_token)):
+async def create_doc(data: DocCreate, user: dict = Depends(verify_token)):
     """创建新文档（管理后台）"""
     try:
-        data = await request.json()
-        title = data.get("title", "")
-        category = data.get("category", "其他")
-        content = data.get("content", "")
+        title = data.title
+        category = data.category
+        content = data.content
 
         if not title:
             raise HTTPException(status_code=400, detail="标题不能为空")
 
-        # 创建文档文件
-        filename = f"{sanitize_title(title)}.md"
+        # 创建文档文件（加入 UUID 防覆写）
+        unique_id = uuid.uuid4().hex[:8]
+        filename = f"{user['user_id']}_{unique_id}_{sanitize_title(title)}.md"
         filepath = os.path.join(DOCUMENTS_DIR, filename)
 
         with open(filepath, "w", encoding="utf-8") as f:
@@ -958,13 +960,12 @@ async def create_doc(request: Request, user: dict = Depends(verify_token)):
         raise HTTPException(status_code=500, detail="文档创建失败，请稍后重试")
 
 @app.put("/api/docs/{doc_id}")
-async def update_doc(doc_id: int, request: Request, user: dict = Depends(verify_token)):
+async def update_doc(doc_id: int, data: DocUpdate, user: dict = Depends(verify_token)):
     """更新文档（管理后台）"""
     try:
-        data = await request.json()
-        title = data.get("title", "")
-        category = data.get("category", "其他")
-        content = data.get("content", "")
+        title = data.title or ""
+        category = data.category or "其他"
+        content = data.content or ""
 
         with get_db() as conn:
             cursor = conn.cursor()

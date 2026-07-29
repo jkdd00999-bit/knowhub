@@ -111,7 +111,7 @@ def list_all_documents() -> str:
 @tool
 def get_document_info(filename: str) -> str:
     """获取指定文档的详细信息（大小、页数、分块数等）。"""
-    filepath = f"./documents/{filename}"
+    filepath = os.path.join(_TOOLS_BASE_DIR, "documents", filename)
     # 路径验证，防止路径穿越
     valid, err = _validate_path(filepath)
     if not valid:
@@ -254,16 +254,16 @@ def _validate_path(filepath: str) -> tuple[bool, str]:
     try:
         # 解析为绝对路径，消除 .. 和符号链接
         abs_path = os.path.realpath(os.path.abspath(filepath))
-        project_root = os.path.realpath(os.path.abspath("."))
+        project_root = os.path.realpath(os.path.abspath(_TOOLS_BASE_DIR))
 
-        # 检查路径是否在项目根目录内
-        if not abs_path.startswith(project_root):
+        # 检查路径是否在项目根目录内（使用 os.sep 防止前缀绕过）
+        if not (abs_path == project_root or abs_path.startswith(project_root + os.sep)):
             return False, f"路径不在项目目录内: {filepath}"
 
-        # 检查是否在允许的目录列表中
+        # 检查是否在允许的目录列表中（使用 os.sep 防止前缀绕过）
         for allowed in _ALLOWED_DIRS:
             allowed_abs = os.path.realpath(os.path.abspath(allowed))
-            if abs_path.startswith(allowed_abs):
+            if abs_path == allowed_abs or abs_path.startswith(allowed_abs + os.sep):
                 return True, ""
 
         return False, f"路径不在允许的目录内: {filepath}"
@@ -701,8 +701,8 @@ def _auto_extract_episode(user_id: str, question: str,
 
         print(f"🧠 情节记忆已提取: {task_type} | 失败策略: {mistake[:30]}... | 成功策略: {fix_str[:30]}...")
 
-    except Exception:
-        pass  # 静默失败
+    except Exception as e:
+        print(f"[WARN] 情节记忆提取失败: {e}")
 
 @tool
 def recall_episodes(query: str = "") -> str:
@@ -943,8 +943,8 @@ def _archive_dialogue_turns(user_id: str, conv_id: int, messages: list):
         conn.commit()
         conn.close()
         print(f"📝 已归档 {len(new_msgs)} 条对话到存档 (conv={conv_id})")
-    except Exception:
-        pass  # 静默失败
+    except Exception as e:
+        print(f"[WARN] 对话归档失败: {e}")
 
 @tool
 def search_history(query: str = "", top_k: int = 3) -> str:
@@ -1176,8 +1176,8 @@ def _auto_extract_knowledge(user_id: str, user_msg: str, assistant_msg: str,
         conn.commit()
         conn.close()
         print(f"🧠 已沉淀 {len(items)} 条知识 (conv={conv_id})")
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[WARN] 知识沉淀提取失败: {e}")
 
 
 @tool
@@ -1385,25 +1385,27 @@ def get_file_metadata(filename: str, question: str = "") -> str:
     """获取文档的元数据信息。"""
     import sqlite3
     import re
-    
-    db_path = os.path.join(os.getenv("DB_DIR", "./data"), "knowhub.db")
+
+    db_path = os.path.join(os.getenv("DB_DIR", os.path.join(_TOOLS_BASE_DIR, "data")), "knowhub.db")
     conn = sqlite3.connect(db_path)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=5000")
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    
-    clean_name = re.sub(r'[《》]', '', filename)
-    cursor.execute("""
-        SELECT filename, file_size, page_count, article_count, word_count, chunk_count
-        FROM user_files 
-        WHERE filename LIKE ? OR filename LIKE ? OR filename LIKE ?
-        ORDER BY id DESC
-        LIMIT 1
-    """, (f"%{clean_name}%", f"%{clean_name}法%", f"%{clean_name}条例%"))
-    
-    row = cursor.fetchone()
-    conn.close()
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        clean_name = re.sub(r'[《》]', '', filename)
+        cursor.execute("""
+            SELECT filename, file_size, page_count, article_count, word_count, chunk_count
+            FROM user_files
+            WHERE filename LIKE ? OR filename LIKE ? OR filename LIKE ?
+            ORDER BY id DESC
+            LIMIT 1
+        """, (f"%{clean_name}%", f"%{clean_name}法%", f"%{clean_name}条例%"))
+
+        row = cursor.fetchone()
+    finally:
+        conn.close()
     
     if not row:
         return f"未找到「{filename}」这个文件"

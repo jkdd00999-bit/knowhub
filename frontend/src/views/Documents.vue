@@ -85,6 +85,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import SkeletonLoader from '../components/SkeletonLoader.vue'
 import { useToast } from '../composables/useToast'
+import { request } from '../composables/useRequest'
 
 const toast = useToast()
 
@@ -152,7 +153,7 @@ async function uploadFiles(files) {
         }
       }, 200)
 
-      const response = await fetch('/api/upload', {
+      const response = await request('/api/upload', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -200,7 +201,7 @@ async function loadDocuments() {
       return
     }
 
-    const response = await fetch('/api/docs', {
+    const response = await request('/api/docs', {
       headers: {
         'Authorization': `Bearer ${token}`
       }
@@ -228,7 +229,7 @@ async function deleteDocument(docId) {
 
   try {
     const token = localStorage.getItem('token')
-    const response = await fetch(`/api/docs/${docId}`, {
+    const response = await request(`/api/docs/${docId}`, {
       method: 'DELETE',
       headers: {
         'Authorization': `Bearer ${token}`

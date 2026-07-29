@@ -89,6 +89,7 @@ import SkeletonLoader from '../components/SkeletonLoader.vue'
 import { formatDate } from '../utils/date.js'
 import { getAuthHeaders } from '../utils/auth.js'
 import { useToast } from '../composables/useToast'
+import { request } from '../composables/useRequest'
 
 const toast = useToast()
 
@@ -104,7 +105,7 @@ const isValidEmail = ref(true)
 
 async function loadUserData() {
   try {
-    const res = await fetch('/api/auth/me', {
+    const res = await request('/api/auth/me', {
       headers: getAuthHeaders(),
     })
     if (res.ok) {
@@ -122,7 +123,7 @@ async function loadUserData() {
 async function loadSubscriptions() {
   loading.value = true
   try {
-    const res = await fetch('/api/subscriptions', {
+    const res = await request('/api/subscriptions', {
       headers: getAuthHeaders(),
     })
     if (res.ok) {
@@ -144,7 +145,7 @@ async function saveEmail() {
   isValidEmail.value = true
 
   try {
-    const res = await fetch('/api/auth/me', {
+    const res = await request('/api/auth/me', {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -171,7 +172,7 @@ async function createSubscription() {
 
   creating.value = true
   try {
-    const res = await fetch('/api/subscriptions', {
+    const res = await request('/api/subscriptions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -200,7 +201,7 @@ async function cancelSubscription(subId) {
   if (!confirm('确定要取消这个订阅吗？')) return
 
   try {
-    const res = await fetch(`/api/subscriptions/${subId}`, {
+    const res = await request(`/api/subscriptions/${subId}`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
     })

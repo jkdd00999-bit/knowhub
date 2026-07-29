@@ -99,20 +99,24 @@ PROMPT = PromptTemplate(
 # ==================== 全局 RAG 组件（懒加载）====================
 _hybrid_retriever = None
 _reranker = None
+_rag_init_lock = __import__('threading').Lock()
 
 
 def _init_rag():
-    """懒初始化 RAG 组件（使用统一的初始化函数）"""
+    """懒初始化 RAG 组件（线程安全的双重检查锁）"""
     global _hybrid_retriever, _reranker
     if _hybrid_retriever is not None:
         return
 
-    try:
-        from chunk import initialize_rag_components
-        _, _hybrid_retriever, _reranker = initialize_rag_components()
-    except Exception as e:
-        print(f"[WARN] RAG 初始化失败: {e}")
-        traceback.print_exc()
+    with _rag_init_lock:
+        if _hybrid_retriever is not None:
+            return
+        try:
+            from chunk import initialize_rag_components
+            _, _hybrid_retriever, _reranker = initialize_rag_components()
+        except Exception as e:
+            print(f"[WARN] RAG 初始化失败: {e}")
+            traceback.print_exc()
 
 
 # ==================== AgentState 定义 ====================
