@@ -217,14 +217,12 @@ class BGEReranker:
                 print(f"从本地目录加载重排模型: {abs_path}")
                 self.model = CrossEncoder(
                     abs_path, device="cpu", trust_remote_code=True,
-                    model_kwargs={"low_cpu_mem_usage": True},
                 )
             else:
                 # 本地不存在，从 HuggingFace 下载
                 print(f"本地模型不存在，从 HuggingFace 自动下载: {self.hf_model_id}")
                 self.model = CrossEncoder(
                     self.hf_model_id, device="cpu", trust_remote_code=True,
-                    model_kwargs={"low_cpu_mem_usage": True},
                 )
                 print("[OK] 模型已下载并缓存，后续启动将自动使用缓存")
             _ = self.model.predict([["预热", "预热"]], show_progress_bar=False)
