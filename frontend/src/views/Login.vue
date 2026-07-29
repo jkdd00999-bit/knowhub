@@ -94,9 +94,12 @@ async function handleLogin() {
     localStorage.setItem('userRole', data.role || 'viewer')
     localStorage.setItem('email', data.email || '')
 
-    // 跳转到目标页或控制台
-    const redirect = route.query.redirect || '/dashboard'
-    router.push(redirect)
+    // 跳转到目标页或控制台（防止开放重定向）
+    const rawRedirect = route.query.redirect || '/dashboard'
+    const safeRedirect = (typeof rawRedirect === 'string' && rawRedirect.startsWith('/') && !rawRedirect.startsWith('//'))
+      ? rawRedirect
+      : '/dashboard'
+    router.push(safeRedirect)
   } catch (e) {
     error.value = e.message || '登录失败，请重试'
   } finally {

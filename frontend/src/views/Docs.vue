@@ -41,7 +41,7 @@
           <span v-if="currentDoc.category">{{ currentDoc.category }}</span>
         </p>
         <h1>{{ currentDoc.title }}</h1>
-        <p class="doc-meta">更新于 {{ currentDoc.updated_at || '2026-07-10' }}</p>
+        <p class="doc-meta">更新于 {{ currentDoc.updated_at || currentDoc.created_at || '未知' }}</p>
       </div>
 
       <div class="doc-body" ref="docBodyRef" v-html="renderMarkdown(currentDoc.content)"></div>
@@ -91,7 +91,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, nextTick, inject } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick, inject } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -113,10 +113,10 @@ const currentId = computed(() => route.params.id)
 const currentDoc = computed(() => {
   if (!currentId.value) return null
   for (const cat of catalog.value) {
-    const found = cat.items?.find(d => d.id == currentId.value)
+    const found = cat.items?.find(d => String(d.id) === String(currentId.value))
     if (found) return found
   }
-  return allDocs.value.find(d => d.id == currentId.value) || null
+  return allDocs.value.find(d => String(d.id) === String(currentId.value)) || null
 })
 
 function attachCopyButtons() {
@@ -196,6 +196,10 @@ onMounted(async () => {
   if (currentId.value) loadDoc(currentId.value)
 })
 
+onUnmounted(() => {
+  clearTimeout(debounceTimer)
+})
+
 function onSearchInput() {
   clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => {
@@ -212,7 +216,7 @@ function filteredDocs(items) {
 function renderMarkdown(text) {
   if (!text) return ''
   marked.setOptions({ breaks: true, gfm: true })
-  const html = marked(text)
+  const html = marked.parse(text || '')
   return DOMPurify.sanitize(html)
 }
 

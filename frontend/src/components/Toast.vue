@@ -15,10 +15,11 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onUnmounted } from 'vue'
 
 const toasts = ref([])
 let seq = 0
+const timers = new Map()
 
 const iconMap = { success: '\u2714', error: '\u2716', info: '\u2139', warning: '\u26A0' }
 
@@ -26,14 +27,23 @@ function add(type, message, duration = 4000) {
   const id = ++seq
   toasts.value.push({ id, type, message })
   if (duration > 0) {
-    setTimeout(() => dismiss(id), duration)
+    timers.set(id, setTimeout(() => dismiss(id), duration))
   }
 }
 
 function dismiss(id) {
   const idx = toasts.value.findIndex(t => t.id === id)
   if (idx > -1) toasts.value.splice(idx, 1)
+  if (timers.has(id)) {
+    clearTimeout(timers.get(id))
+    timers.delete(id)
+  }
 }
+
+onUnmounted(() => {
+  timers.forEach(t => clearTimeout(t))
+  timers.clear()
+})
 
 defineExpose({ add, dismiss })
 </script>

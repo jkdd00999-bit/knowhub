@@ -2,8 +2,34 @@
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
 *.db
 *.sqlite
+*.sqlite3
+.Python
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Data directories
+data/
+vector_db/
+chroma_db/
+documents/
+temp_files/
+temp_vectors/
+bge_reranker_*/
+
+# Model files
+*.bin
+*.pt
+*.pth
+*.onnx
+
+# Scheduled tasks
+scheduled_tasks.json
 
 # Node
 node_modules/
@@ -13,6 +39,7 @@ dist/
 .env
 .env_*
 .env.local
+.env.*.local
 
 # Logs
 *.log
@@ -20,7 +47,26 @@ dist/
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Build
+*.egg-info/
+.coverage
+htmlcov/
+
+# Temporary files
+*.tmp
+temp_check.txt
+*_output.txt
+_qa_test.txt
+
+# Test outputs
+bench_*.txt
+eval_*.txt
+test_queries*.json
+crawled_policies.json

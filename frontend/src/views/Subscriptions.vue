@@ -211,9 +211,8 @@ async function cancelSubscription(subId) {
   } catch (e) { console.error(e) }
 }
 
-onMounted(async () => {
-  await loadUserData()
-  await loadSubscriptions()
+onMounted(() => {
+  Promise.all([loadUserData(), loadSubscriptions()])
 })
 </script>
 

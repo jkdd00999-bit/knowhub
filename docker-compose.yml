@@ -15,18 +15,18 @@ services:
       - ./backend/chroma_db:/app/chroma_db
       - ./backend/data:/app/data
     environment:
-      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-your-api-key-here}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:?请在 .env 中设置 DASHSCOPE_API_KEY}
       - PYTHONIOENCODING=utf-8
       - SQLITE_BUSY_TIMEOUT=5000
       - DB_DIR=/app/data
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:?请在 .env 中设置 JWT_SECRET_KEY}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8000,http://localhost:5173,http://localhost}
-      - TAVILY_API_KEY=${TAVILY_API_KEY}
+      - TAVILY_API_KEY=${TAVILY_API_KEY:?请在 .env 中设置 TAVILY_API_KEY}
       - HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
       - REDIS_HOST=${REDIS_HOST:-redis}
       - REDIS_PORT=${REDIS_PORT:-6379}
       - REDIS_DB=${REDIS_DB:-0}
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-knowhub_redis密码}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?请在 .env 中设置 REDIS_PASSWORD}
     depends_on:
       - redis
     restart: unless-stopped
@@ -51,7 +51,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: knowhub-redis
-    command: redis-server --requirepass ${REDIS_PASSWORD:-knowhub_redis密码}
+    command: redis-server --requirepass ${REDIS_PASSWORD:?请在 .env 中设置 REDIS_PASSWORD}
     volumes:
       - redis-data:/data
     restart: unless-stopped

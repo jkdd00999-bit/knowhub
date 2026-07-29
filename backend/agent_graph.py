@@ -2,6 +2,7 @@
 # LangGraph 多节点 Agent Workflow
 
 import os
+import threading
 import traceback
 from typing import List, Dict, Any, Annotated
 from typing_extensions import TypedDict
@@ -99,7 +100,7 @@ PROMPT = PromptTemplate(
 # ==================== 全局 RAG 组件（懒加载）====================
 _hybrid_retriever = None
 _reranker = None
-_rag_init_lock = __import__('threading').Lock()
+_rag_init_lock = threading.Lock()
 
 
 def _init_rag():

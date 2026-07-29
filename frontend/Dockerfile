@@ -1,14 +1,14 @@
 # 前端 Dockerfile
 # 构建阶段
-FROM node:18-alpine AS build
+FROM node:20-alpine AS build
 
 WORKDIR /app
 
 # 复制依赖文件
 COPY package*.json ./
 
-# 安装依赖
-RUN npm install
+# 安装依赖（使用 ci 确保可重复构建）
+RUN npm ci
 
 # 复制源代码
 COPY . .
@@ -17,7 +17,7 @@ COPY . .
 RUN npm run build
 
 # 运行阶段
-FROM nginx:alpine
+FROM nginx:1.26-alpine
 
 # 复制构建产物
 COPY --from=build /app/dist /usr/share/nginx/html
@@ -27,5 +27,9 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # 暴露端口
 EXPOSE 80
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:80/ || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]

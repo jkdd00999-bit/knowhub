@@ -74,12 +74,16 @@ import { useRouter } from 'vue-router'
 import AiAssistant from './components/AiAssistant.vue'
 import Toast from './components/Toast.vue'
 import { setToastRef } from './composables/useRequest'
-import { toastRef as sharedToastRef } from './main.js'
+import { toastRef as sharedToastRef } from './composables/useToastRef'
 
 const router = useRouter()
 const navOpen = ref(false)
 const userMenuOpen = ref(false)
 const userMenuRef = ref(null)
+
+// 路由切换时关闭移动端导航菜单
+import { watch } from 'vue'
+watch(() => router.currentRoute.value.path, () => { navOpen.value = false })
 const toastRef = ref(null)
 
 // 认证状态

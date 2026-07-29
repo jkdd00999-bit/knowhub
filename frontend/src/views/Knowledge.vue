@@ -10,7 +10,6 @@
       <input
         v-model="searchQuery"
         placeholder="搜索知识库..."
-        @input="filterKnowledge"
       />
       <span class="search-icon">🔍</span>
     </div>
@@ -209,10 +208,6 @@ const filteredKnowledge = computed(() => {
     kb.tags.some(t => t.toLowerCase().includes(q))
   )
 })
-
-function filterKnowledge() {
-  // Computed 自动处理
-}
 
 async function loadDocs() {
   loading.value = true

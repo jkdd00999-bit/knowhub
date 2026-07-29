@@ -32,7 +32,8 @@ from langchain.schema import Document
 from hierarchical_splitter import HierarchicalTextSplitter
 from skills.clarify_skill import ClarifySkill
 
-warnings.filterwarnings("ignore")
+# 注意：不再全局禁用警告，如需抑制特定警告请在具体位置使用
+# warnings.filterwarnings("ignore", category=DeprecationWarning)
 # ==================== 配置 ====================
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY")
 QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
@@ -43,6 +44,8 @@ _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOCUMENTS_DIR = os.path.join(_BASE_DIR, "documents")
 VECTOR_DB_DIR = os.path.join(_BASE_DIR, "vector_db")
 # ==================== 全局变量（供 agent.py 调用）====================
+# hybrid_retriever 和 reranker 通过 initialize_rag_components() 返回值获取
+# 以下全局变量保留用于兼容性，但不应直接使用
 hybrid_retriever = None
 reranker = None
 
@@ -147,6 +150,8 @@ class BM25Retriever:
         }
 
     def similarity_search(self, query: str, k: int = 4) -> List[Document]:
+        if not self.doc_words or self.avg_length == 0:
+            return []
         query_words = self._tokenize(query)
         scores = []
         for idx, words in enumerate(self.doc_words):
@@ -195,7 +200,9 @@ class HybridRetriever:
 class BGEReranker:
     """BGE 重排模型 - 使用 base 版本"""
 
-    def __init__(self, model_path="./bge_reranker_v2_m3"):
+    def __init__(self, model_path=None):
+        if model_path is None:
+            model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bge_reranker_v2_m3")
         self.model = None
         self.local_path = model_path
         self.hf_model_id = "BAAI/bge-reranker-v2-m3"
@@ -288,7 +295,7 @@ def load_documents(directory: str):
             print(f"  ✗ 加载失败 {filename}: {e}")
     
     # 2. 加载 CIMD 政策数据集
-    cimd_path = "./CIMD/data/corpus/reference_governance/train.jsonl"
+    cimd_path = os.path.join(_BASE_DIR, "CIMD", "data", "corpus", "reference_governance", "train.jsonl")
     if os.path.exists(cimd_path):
         print(f"\n📚 正在加载 CIMD 数据集...")
         cimd_docs = load_cimd_dataset(cimd_path, max_records=5000)
@@ -562,7 +569,7 @@ def initialize_rag_components():
 
         # 加载重排模型
         try:
-            reranker = BGEReranker(model_path="./bge_reranker_v2_m3")
+            reranker = BGEReranker()
         except Exception as e:
             print(f"[WARN] Reranker 加载失败: {e}")
             reranker = None

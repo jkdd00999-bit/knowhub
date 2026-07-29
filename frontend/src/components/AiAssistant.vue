@@ -16,7 +16,7 @@
       </div>
 
       <div class="ai-panel__body" ref="msgList">
-        <div v-for="(m, i) in messages" :key="i" :class="['msg', m.role]">
+        <div v-for="(m, i) in messages" :key="m.id || i" :class="['msg', m.role]">
           <div class="msg-bubble" v-html="renderMarkdown(m.content)"></div>
           <div v-if="m.references?.length" class="msg-refs">
             参考：<a v-for="ref in m.references" :href="'/docs/' + ref.doc_id" @click.prevent="isOpen = false; $router.push('/docs/' + ref.doc_id)">{{ ref.title }}</a>
@@ -30,6 +30,7 @@
           v-model="input"
           placeholder="输入你的问题，如「怎么配置 Webhook？」"
           rows="1"
+          maxlength="2000"
           @keydown.enter.exact.prevent="send"
           @input="autoResize"
           ref="inputEl"
@@ -43,7 +44,7 @@
 </template>
 
 <script setup>
-import { ref, nextTick, watch } from 'vue'
+import { ref, nextTick, watch, onMounted, onUnmounted } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { request } from '../composables/useRequest'
@@ -56,6 +57,13 @@ const messages = ref([])
 const loading = ref(false)
 const msgList = ref(null)
 const inputEl = ref(null)
+const conversationId = ref(null)
+let msgIdCounter = 0
+
+// 监听外部事件打开面板
+function handleOpenEvent() { isOpen.value = true }
+onMounted(() => window.addEventListener('open-ai-assistant', handleOpenEvent))
+onUnmounted(() => window.removeEventListener('open-ai-assistant', handleOpenEvent))
 
 function renderMarkdown(text) {
   const html = marked(text || '')
@@ -78,7 +86,7 @@ function autoResize() {
 async function send() {
   const text = input.value.trim()
   if (!text || loading.value) return
-  messages.value.push({ role: 'user', content: text })
+  messages.value.push({ id: ++msgIdCounter, role: 'user', content: text })
   input.value = ''
   loading.value = true
   scrollBottom()
@@ -95,7 +103,7 @@ async function send() {
       headers,
       body: JSON.stringify({
         message: text,
-        conversation_id: null,
+        conversation_id: conversationId.value,
       }),
       silent: true,
     })
@@ -105,13 +113,18 @@ async function send() {
     }
 
     const data = await resp.json()
+    // 保存会话ID，后续消息复用同一会话
+    if (data.conversation_id) {
+      conversationId.value = data.conversation_id
+    }
     messages.value.push({
+      id: ++msgIdCounter,
       role: 'assistant',
       content: data.answer || '抱歉，我暂时无法回答这个问题。',
       references: data.references || [],
     })
   } catch (e) {
-    messages.value.push({ role: 'assistant', content: '抱歉，请求失败。请检查网络连接或稍后重试。' })
+    messages.value.push({ id: ++msgIdCounter, role: 'assistant', content: '抱歉，请求失败。请检查网络连接或稍后重试。' })
   } finally {
     loading.value = false
     scrollBottom()
@@ -127,6 +140,7 @@ watch(isOpen, (val) => {
     nextTick(() => inputEl.value?.focus())
     if (messages.value.length === 0) {
       messages.value.push({
+        id: ++msgIdCounter,
         role: 'assistant',
         content: '你好！我是 AI 助手，可以帮你查找文档、解答产品使用问题。试着问我吧～',
       })

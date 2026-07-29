@@ -66,9 +66,12 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { request } from '../composables/useRequest'
+
+let redirectTimer = null
+onUnmounted(() => { if (redirectTimer) clearTimeout(redirectTimer) })
 
 const router = useRouter()
 const loading = ref(false)
@@ -134,7 +137,7 @@ async function handleRegister() {
 
     // 注册成功，跳转到登录页
     success.value = '注册成功！正在跳转到登录页...'
-    setTimeout(() => {
+    redirectTimer = setTimeout(() => {
       router.push('/login')
     }, 1000)
   } catch (e) {

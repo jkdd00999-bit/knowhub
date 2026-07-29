@@ -17,7 +17,6 @@ from datetime import datetime, timedelta, timezone
 import uvicorn
 import re
 import os
-import shutil
 import json
 import sqlite3
 import uuid
@@ -74,6 +73,9 @@ def get_db():
     try:
         yield conn
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -1270,32 +1272,31 @@ async def delete_doc(doc_id: int, user: dict = Depends(verify_token)):
                     os.remove(filepath)
                     print(f"已删除文件: {filepath}")
 
-                # 清理向量数据库中该文档的所有向量
-                try:
-                    vs = load_vector_store()
-                    if vs is not None:
-                        vs.delete(where={"source": filename})
-                        # 也尝试用原始文件名（不含 user_id 前缀）清理
-                        original_name = filename.split("_", 1)[-1] if "_" in filename else filename
-                        if original_name != filename:
-                            vs.delete(where={"source": original_name})
-                        print(f"已清理向量数据库中 {filename} 的向量")
-                except Exception as ve:
-                    print(f"[WARN] 向量数据库清理失败: {ve}")
+                # 清理向量数据库和 chunk 缓存（加锁防并发）
+                async with _vector_store_lock:
+                    try:
+                        vs = load_vector_store()
+                        if vs is not None:
+                            vs.delete(where={"source": filename})
+                            original_name = filename.split("_", 1)[-1] if "_" in filename else filename
+                            if original_name != filename:
+                                vs.delete(where={"source": original_name})
+                            print(f"已清理向量数据库中 {filename} 的向量")
+                    except Exception as ve:
+                        print(f"[WARN] 向量数据库清理失败: {ve}")
 
-                # 清理 chunk 缓存中该文件的 chunks
-                try:
-                    cached = load_cached_chunks()
-                    filtered = [c for c in cached if c.metadata.get("source") != filename
-                                and c.metadata.get("source") != (filename.split("_", 1)[-1] if "_" in filename else filename)]
-                    save_chunks_cache(filtered)
-                    chunked_files = get_chunked_files()
-                    chunked_files.discard(filename)
-                    original_name = filename.split("_", 1)[-1] if "_" in filename else filename
-                    chunked_files.discard(original_name)
-                    save_chunked_files(chunked_files)
-                except Exception as ce:
-                    print(f"[WARN] Chunk 缓存清理失败: {ce}")
+                    try:
+                        cached = load_cached_chunks()
+                        filtered = [c for c in cached if c.metadata.get("source") != filename
+                                    and c.metadata.get("source") != (filename.split("_", 1)[-1] if "_" in filename else filename)]
+                        save_chunks_cache(filtered)
+                        chunked_files = get_chunked_files()
+                        chunked_files.discard(filename)
+                        original_name = filename.split("_", 1)[-1] if "_" in filename else filename
+                        chunked_files.discard(original_name)
+                        save_chunked_files(chunked_files)
+                    except Exception as ce:
+                        print(f"[WARN] Chunk 缓存清理失败: {ce}")
 
                 # 重新初始化检索器
                 from chunk import initialize_rag_components

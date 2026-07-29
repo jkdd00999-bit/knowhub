@@ -393,15 +393,17 @@ def save_to_memory(key: str, value: str, user_id: Optional[str] = None) -> str:
         user_id: 用户ID（可选，默认从上下文获取）
     """
     uid = user_id or _get_current_user_id()
-    
+
     conn = _get_memory_conn()
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT OR REPLACE INTO user_memory (user_id, memory_key, memory_value, updated_at)
-        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-    """, (uid, key, value))
-    conn.commit()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO user_memory (user_id, memory_key, memory_value, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        """, (uid, key, value))
+        conn.commit()
+    finally:
+        conn.close()
     
     return f"✅ 已记住: {key} = {value}"
 
@@ -415,36 +417,37 @@ def recall_from_memory(key: str = "", user_id: Optional[str] = None) -> str:
         user_id: 用户ID（可选，默认从上下文获取）
     """
     uid = user_id or _get_current_user_id()
-    
+
     conn = _get_memory_conn()
-    cursor = conn.cursor()
-    
-    if key:
-        cursor.execute(
-            "SELECT memory_value FROM user_memory WHERE user_id = ? AND memory_key = ?",
-            (uid, key)
-        )
-        row = cursor.fetchone()
-        conn.close()
-        if row:
-            return f"📝 {key} = {row[0]}"
+    try:
+        cursor = conn.cursor()
+
+        if key:
+            cursor.execute(
+                "SELECT memory_value FROM user_memory WHERE user_id = ? AND memory_key = ?",
+                (uid, key)
+            )
+            row = cursor.fetchone()
+            if row:
+                return f"📝 {key} = {row[0]}"
+            else:
+                return f"未找到关于「{key}」的记忆"
         else:
-            return f"未找到关于「{key}」的记忆"
-    else:
-        cursor.execute(
-            "SELECT memory_key, memory_value FROM user_memory WHERE user_id = ?",
-            (uid,)
-        )
-        rows = cursor.fetchall()
+            cursor.execute(
+                "SELECT memory_key, memory_value FROM user_memory WHERE user_id = ?",
+                (uid,)
+            )
+            rows = cursor.fetchall()
+
+            if not rows:
+                return "暂无存储的记忆"
+
+            result = "📝 存储的记忆：\n"
+            for k, v in rows:
+                result += f"  • {k}: {v}\n"
+            return result
+    finally:
         conn.close()
-        
-        if not rows:
-            return "暂无存储的记忆"
-        
-        result = "📝 存储的记忆：\n"
-        for k, v in rows:
-            result += f"  • {k}: {v}\n"
-        return result
 
 
 @tool
@@ -456,17 +459,19 @@ def forget_from_memory(key: str, user_id: Optional[str] = None) -> str:
         user_id: 用户ID（可选，默认从上下文获取）
     """
     uid = user_id or _get_current_user_id()
-    
+
     conn = _get_memory_conn()
-    cursor = conn.cursor()
-    cursor.execute(
-        "DELETE FROM user_memory WHERE user_id = ? AND memory_key = ?",
-        (uid, key)
-    )
-    affected = cursor.rowcount
-    conn.commit()
-    conn.close()
-    
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM user_memory WHERE user_id = ? AND memory_key = ?",
+            (uid, key)
+        )
+        affected = cursor.rowcount
+        conn.commit()
+    finally:
+        conn.close()
+
     if affected:
         return f"✅ 已忘记: {key}"
     return f"未找到「{key}」的记忆"
@@ -475,18 +480,20 @@ def forget_from_memory(key: str, user_id: Optional[str] = None) -> str:
 @tool
 def clear_memory(user_id: Optional[str] = None) -> str:
     """清除当前用户的所有记忆。
-    
+
     Args:
         user_id: 用户ID（可选，默认从上下文获取）
     """
     uid = user_id or _get_current_user_id()
-    
+
     conn = _get_memory_conn()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM user_memory WHERE user_id = ?", (uid,))
-    affected = cursor.rowcount
-    conn.commit()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM user_memory WHERE user_id = ?", (uid,))
+        affected = cursor.rowcount
+        conn.commit()
+    finally:
+        conn.close()
     
     return f"✅ 已清除 {affected} 条记忆"
 
@@ -513,7 +520,7 @@ def update_conversation_summary(summary: str) -> str:
 
 
 # 全局内存缓存（用于热数据加速，可选）
-# 全局内存缓存 — 已移除（未使用的死代码）
+# ==================== 7. 文件工具 (4个) ====================
 
 
 # ==================== 情节记忆（Episodic Memory）====================

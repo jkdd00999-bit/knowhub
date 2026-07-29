@@ -1,13 +1,11 @@
-import { createApp, ref } from 'vue'
+import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router'
 import Toast from './components/Toast.vue'
+import { toastRef } from './composables/useToastRef'
 
 const app = createApp(App)
 app.use(router)
-
-// Toast: use a shared ref so toastApi works before App.vue mounts
-export const toastRef = ref(null)
 
 app.component('Toast', Toast)
 const toastApi = {
