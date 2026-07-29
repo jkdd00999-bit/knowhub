@@ -66,9 +66,9 @@ try:
         password=REDIS_PASSWORD, decode_responses=True
     )
     redis_client.ping()
-    print("✅ Redis 连接成功，缓存已启用")
+    print("[OK] Redis 连接成功，缓存已启用")
 except Exception as e:
-    print(f"⚠️ Redis 连接失败: {e}，将不使用缓存")
+    print(f"[WARN] Redis 连接失败: {e}，将不使用缓存")
     redis_client = None
 
 
@@ -226,12 +226,12 @@ class BGEReranker:
                     self.hf_model_id, device="cpu", trust_remote_code=True,
                     model_kwargs={"low_cpu_mem_usage": True},
                 )
-                print("✅ 模型已下载并缓存，后续启动将自动使用缓存")
+                print("[OK] 模型已下载并缓存，后续启动将自动使用缓存")
             _ = self.model.predict([["预热", "预热"]], show_progress_bar=False)
-            print("✅ 重排模型加载完成")
+            print("[OK] 重排模型加载完成")
         except Exception as e:
             import traceback
-            print(f"⚠️ 重排模型加载失败（不影响核心功能，仅降低检索精度）: {e}")
+            print(f"[WARN] 重排模型加载失败（不影响核心功能，仅降低检索精度）: {e}")
             traceback.print_exc()
             self.model = None
 
@@ -302,7 +302,7 @@ def load_documents(directory: str):
         documents.extend(cimd_docs)
         print(f"  ✓ 加载CIMD数据: {len(cimd_docs)} 条")
     else:
-        print(f"\n⚠️ CIMD 数据集不存在: {cimd_path}")
+        print(f"\n[WARN] CIMD 数据集不存在: {cimd_path}")
     
     return documents
 
@@ -420,7 +420,7 @@ def chunk_only_new_files(all_files: set, directory: str,
             print(f"从缓存加载 {len(cached)} 个已有文本块（无需重新分块）")
             return cached
         # 缓存丢失，全量重建
-        print("⚠️ 缓存丢失，重新全量分块...")
+        print("[WARN] 缓存丢失，重新全量分块...")
 
     # 有缓存就从缓存起步，否则从空列表起步
     chunks = list(existing_chunks) if existing_chunks else load_cached_chunks()
@@ -472,7 +472,7 @@ def create_vector_store(chunks: List[Document]):
         vector_store = Chroma.from_documents(
             documents=chunks, embedding=embeddings, persist_directory=VECTOR_DB_DIR
         )
-        print(f"✅ 向量库已存储到 {VECTOR_DB_DIR}")
+        print(f"[OK] 向量库已存储到 {VECTOR_DB_DIR}")
         return vector_store
     except Exception as e:
         print(f"创建向量库失败: {e}")
@@ -506,7 +506,7 @@ def load_vector_store():
     embeddings = DashScopeEmbeddings(model="text-embedding-v4")
     try:
         vector_store = Chroma(persist_directory=VECTOR_DB_DIR, embedding_function=embeddings)
-        print("✅ 向量库加载成功")
+        print("[OK] 向量库加载成功")
         return vector_store
     except Exception as e:
         print(f"加载向量库失败: {e}")
@@ -519,7 +519,7 @@ def initialize_rag_components():
     统一的 RAG 组件初始化函数
     返回: (vector_store, hybrid_retriever, reranker) 或 (None, None, None)
 
-    ⚠️ 注意：BM25 检索器需要加载所有文档到内存。
+    [WARN] 注意：BM25 检索器需要加载所有文档到内存。
     文档量超过 1000 份时可能产生较大内存占用。
     如遇到 OOM，考虑对 collection 分批加载或限制 BM25 索引大小。
     """
@@ -592,17 +592,17 @@ def add_new_documents_to_store(vector_store, new_chunks):
         for i in range(0, len(new_chunks), batch_size):
             batch = new_chunks[i:i+batch_size]
             vector_store.add_documents(batch)
-            print(f"  ✅ 批次 {i//batch_size+1}: 已写入 {len(batch)} 个块 ({i+1}-{min(i+batch_size, len(new_chunks))}/{len(new_chunks)})")
-        print(f"  ✅ 全部 {len(new_chunks)} 个新块已追加到向量库")
+            print(f"  [OK] 批次 {i//batch_size+1}: 已写入 {len(batch)} 个块 ({i+1}-{min(i+batch_size, len(new_chunks))}/{len(new_chunks)})")
+        print(f"  [OK] 全部 {len(new_chunks)} 个新块已追加到向量库")
         return vector_store
     except Exception as e:
-        print(f"  ⚠️ 增量添加失败: {e}")
+        print(f"  [WARN] 增量添加失败: {e}")
         traceback.print_exc()
         return None
 
 
 # ==================== 5. 构建问答链（已废弃）====================
-# ⚠️ DEPRECATED: 此函数已被 LangGraph 工作流替代（agent_graph.py）。
+# [WARN] DEPRECATED: 此函数已被 LangGraph 工作流替代（agent_graph.py）。
 # 当前通过 initialize_rag_components() 统一初始化 RAG 组件。
 # 保留此函数仅供向后兼容参考，不建议在生产环境调用。
 def build_qa_chain(vector_store, chunks):
@@ -788,7 +788,7 @@ def build_qa_chain(vector_store, chunks):
                     )
                     print(f"💾 [已缓存] 有效期 {_cache_ttl} 秒")
                 except Exception as e:
-                    print(f"⚠️ 缓存写入失败: {e}")
+                    print(f"[WARN] 缓存写入失败: {e}")
 
             return {"answer": answer, "sources": sources, "need_clarification": False}
 
@@ -831,7 +831,7 @@ def interactive_qa(qa_func):
 
         try:
             result = qa_func(question)
-            print("\n✅ 回答:")
+            print("\n[OK] 回答:")
             print("-" * 40)
             if isinstance(result, dict):
                 print(result.get("answer", str(result)))
@@ -856,7 +856,7 @@ def main():
 
     if not os.path.exists(DOCUMENTS_DIR):
         os.makedirs(DOCUMENTS_DIR)
-        print(f"✅ 已创建 {DOCUMENTS_DIR} 文件夹，请放入 PDF/TXT 后重新运行")
+        print(f"[OK] 已创建 {DOCUMENTS_DIR} 文件夹，请放入 PDF/TXT 后重新运行")
         return
 
     files = [f for f in os.listdir(DOCUMENTS_DIR) if f.endswith(('.pdf', '.txt', '.docx', '.md'))]
@@ -905,7 +905,7 @@ def main():
             if updated is not None:
                 save_indexed_files(current_files)
             else:
-                print("⚠️ 增量失败，重建整个向量库...")
+                print("[WARN] 增量失败，重建整个向量库...")
                 shutil.rmtree(VECTOR_DB_DIR, ignore_errors=True)
                 vector_store = create_vector_store(chunks)
                 if vector_store is not None:
@@ -913,7 +913,7 @@ def main():
         elif deleted_files:
             save_indexed_files(current_files)
         else:
-            print("✅ 向量库已是最新，无需更新")
+            print("[OK] 向量库已是最新，无需更新")
 
     if vector_store is None:
         print("❌ 向量库初始化失败，无法继续")
@@ -922,7 +922,7 @@ def main():
     # ---- 启动 ----
     print("\n正在初始化 Qwen 模型...")
     qa_func = build_qa_chain(vector_store, chunks)
-    print("\n✅ 系统就绪！")
+    print("\n[OK] 系统就绪！")
     interactive_qa(qa_func)
 
 

@@ -203,133 +203,83 @@ def load_memory_node(state: AgentState) -> dict:
 
 
 # ==================== 节点 2: query_rewrite ====================
-def query_rewrite_node(state: AgentState) -> dict:
-    """指代消解 + 问题补全"""
+# ==================== 合并节点: 重写+澄清+路由（单次LLM调用） ====================
+def query_process_node(state: AgentState) -> dict:
+    """合并 query_rewrite + query_clarify + route_query 为一次 LLM 调用，大幅降低延迟"""
     raw = state["raw_message"]
     msgs = state["messages"]
-
-    history_msgs = [m for m in msgs[:-1]]
-    if len(history_msgs) < 2:
-        return {"rewritten_query": raw}
-
-    history_parts = []
-    for m in history_msgs[-6:]:
-        role = "用户" if isinstance(m, HumanMessage) else "助手"
-        history_parts.append(f"{role}：{m.content[:300]}")
-    history_text = "\n".join(history_parts)
-
-    rewrite_prompt = f"""你是一个问题重写助手。请根据对话历史，把当前问题重写成完整独立的问题。
-
-【对话历史】
-{history_text}
-
-【当前问题】
-{raw}
-
-规则：
-1. 替换指代词（"这个"、"那篇"、"上述方法"等）为具体内容
-2. 补全省略主语的追问
-3. 如果问题已完整独立，直接输出原问题
-4. 只输出重写后的问题
-
-重写后的问题："""
-
-    try:
-        resp = llm.invoke(rewrite_prompt)
-        rewritten = resp.content.strip()
-        if rewritten and rewritten != raw:
-            print(f"[REWRITE] {raw} -> {rewritten}")
-            return {"rewritten_query": rewritten}
-    except Exception as e:
-        print(f"[WARN] 问题重写失败: {e}")
-
-    return {"rewritten_query": raw}
-
-
-# ==================== 节点 3: query_clarify ====================
-def query_clarify_node(state: AgentState) -> dict:
-    """判断是否需要向用户澄清问题（严格模式：只在真正模糊时才澄清）"""
-    query = state["rewritten_query"]
     memory = state.get("memory_context", "")
 
-    clarify_prompt = f"""判断以下问题是否**极其模糊**，必须澄清才能回答。
+    # 构建对话历史（仅用于指代消解）
+    history_msgs = [m for m in msgs[:-1]]
+    history_text = ""
+    if len(history_msgs) >= 2:
+        parts = []
+        for m in history_msgs[-6:]:
+            role = "用户" if isinstance(m, HumanMessage) else "助手"
+            parts.append(f"{role}：{m.content[:200]}")
+        history_text = "\n".join(parts)
+
+    prompt = f"""分析用户问题，一次性完成三项任务。
 
 {f'【用户背景】{memory}' if memory else ''}
+{f'【对话历史】{history_text}' if history_text else ''}
+【用户问题】{raw}
 
-【用户问题】{query}
+任务1-指代消解：如果对话历史中有"这个""那个""它""上述"等指代词，替换为具体内容。如果无历史或无需替换，输出原问题。
+任务2-澄清判断：问题是否极其模糊无法理解？（少于5字且含义不明）如果是，输出澄清问题。大部分问题都不需要澄清。
+任务3-意图分类：
+- web：需要实时信息（新闻、天气、最新动态、最新政策）
+- knowledge：查询已有文档/知识库内容
+- chat：普通闲聊问候
 
-**判断标准（必须同时满足才需要澄清）：**
-1. 问题完全没有明确的对象或主题
-2. 无法判断用户想要什么类型的信息
-3. 问题过于简短（少于5个字）且含义不明
-
-**以下情况不需要澄清（直接输出 NO）：**
-- 询问最新信息、新闻、发展情况（即使没有指定具体领域）
-- 询问技术、行业、市场等通用话题
-- 问题有明确的主谓宾结构
-- 可以通过联网搜索回答的问题
-
-如果问题清晰或可以通过搜索回答，输出：NO
-只有当问题**极其模糊**无法理解时，输出：YES，并写出澄清问题。
-
-输出格式：YES/NO [澄清问题]"""
+严格按以下 JSON 格式输出（不要其他内容）：
+{{"rewritten": "重写后的问题", "clarify": "澄清问题或空字符串", "intent": "web/knowledge/chat"}}"""
 
     try:
-        resp = llm.invoke(clarify_prompt)
+        resp = llm.invoke(prompt)
         content = resp.content.strip()
-        # 只在前3个字符内查找 YES
-        first_line = content.split('\n')[0].strip()
-        if first_line.startswith("YES") or first_line == "YES":
-            question = content[3:].strip().lstrip("：:").strip()
-            # 如果澄清问题为空或太短，不澄清
-            if question and len(question) > 10:
-                return {
-                    "needs_clarification": True,
-                    "clarification_question": question,
-                }
+        # 提取 JSON
+        import re as _re
+        json_match = _re.search(r'\{[^{}]*\}', content)
+        if json_match:
+            import json as _json
+            data = _json.loads(json_match.group())
+            rewritten = data.get("rewritten", raw) or raw
+            clarify = data.get("clarify", "") or ""
+            intent = data.get("intent", "knowledge") or "knowledge"
+
+            if intent not in ("web", "knowledge", "chat"):
+                intent = "knowledge"
+
+            if rewritten != raw:
+                print(f"[REWRITE] {raw} -> {rewritten}")
+
+            result = {"rewritten_query": rewritten, "intent": intent}
+
+            # 需要澄清时直接返回澄清问题
+            if clarify and len(clarify) > 5:
+                result["needs_clarification"] = True
+                result["clarification_question"] = clarify
+                result["answer"] = clarify
+                result["source"] = "clarify"
+                result["messages"] = [AIMessage(content=clarify)]
+
+            return result
     except Exception as e:
-        print(f"[WARN] 澄清判断失败: {e}")
+        print(f"[WARN] 问题处理失败: {e}")
 
-    return {"needs_clarification": False, "clarification_question": ""}
-
+    return {"rewritten_query": raw, "intent": "knowledge"}
 
 # ==================== 节点 4: clarify_response ====================
 def clarify_response_node(state: AgentState) -> dict:
     """生成澄清回复并结束"""
-    question = state["clarification_question"]
+    question = state.get("clarification_question", state.get("answer", ""))
     return {
         "answer": question,
         "source": "clarify",
         "messages": [AIMessage(content=question)],
     }
-
-
-# ==================== 节点 5: route_query ====================
-def route_query_node(state: AgentState) -> dict:
-    """LLM 意图路由：web / knowledge / chat"""
-    query = state["rewritten_query"]
-
-    intent_prompt = f"""判断用户问题类型：
-
-【用户问题】{query}
-
-类型：
-- web：需要实时信息、最新数据、联网搜索（新闻、天气、股价、最新政策等）
-- knowledge：需要查询已上传文档/知识库的内容（分析、总结、对比文档等）
-- chat：普通闲聊、问候、与知识库无关的通用问题
-
-只输出类型名称：web / knowledge / chat"""
-
-    try:
-        resp = llm.invoke(intent_prompt)
-        intent = resp.content.strip().lower()
-        if intent not in ("web", "knowledge", "chat"):
-            intent = "knowledge"
-    except Exception as e:
-        print(f"[WARN] 意图路由失败: {e}")
-        intent = "knowledge"
-
-    return {"intent": intent}
 
 
 # ==================== 节点 6: hybrid_retrieval ====================
@@ -529,17 +479,17 @@ def save_memory_node(state: AgentState) -> dict:
 
 
 # ==================== 条件路由函数 ====================
-def route_after_clarify(state: AgentState) -> str:
-    """澄清判断后的路由"""
+def route_after_process(state: AgentState) -> str:
+    """query_process 后的统一路由：先检查澄清，再按意图分发"""
     if state.get("needs_clarification"):
-        return "clarify"
-    return "route"
-
-
-def route_by_intent(state: AgentState) -> str:
-    """意图路由"""
+        return "clarify_response"
     intent = state.get("intent", "knowledge")
-    return intent
+    if intent == "web":
+        return "tool_calling"
+    elif intent == "knowledge":
+        return "hybrid_retrieval"
+    else:
+        return "chat_reply"
 
 
 def route_after_validate(state: AgentState) -> str:
@@ -551,15 +501,13 @@ def route_after_validate(state: AgentState) -> str:
 
 # ==================== 构建 StateGraph ====================
 def build_graph():
-    """构建 LangGraph StateGraph"""
+    """构建 LangGraph StateGraph（优化：合并重写+澄清+路由为单节点）"""
     graph = StateGraph(AgentState)
 
     # 添加节点
     graph.add_node("load_memory", load_memory_node)
-    graph.add_node("query_rewrite", query_rewrite_node)
-    graph.add_node("query_clarify", query_clarify_node)
+    graph.add_node("query_process", query_process_node)
     graph.add_node("clarify_response", clarify_response_node)
-    graph.add_node("route_query", route_query_node)
     graph.add_node("hybrid_retrieval", hybrid_retrieval_node)
     graph.add_node("rag_generate", rag_generate_node)
     graph.add_node("validate_answer", validate_answer_node)
@@ -569,8 +517,7 @@ def build_graph():
 
     # 固定边
     graph.add_edge(START, "load_memory")
-    graph.add_edge("load_memory", "query_rewrite")
-    graph.add_edge("query_rewrite", "query_clarify")
+    graph.add_edge("load_memory", "query_process")
     graph.add_edge("hybrid_retrieval", "rag_generate")
     graph.add_edge("rag_generate", "validate_answer")
     graph.add_edge("tool_calling", "save_memory")
@@ -578,28 +525,19 @@ def build_graph():
     graph.add_edge("clarify_response", "save_memory")
     graph.add_edge("save_memory", END)
 
-    # 条件边 1：是否需要澄清
+    # 条件边 1：query_process 后统一路由（澄清优先，然后按意图分发）
     graph.add_conditional_edges(
-        "query_clarify",
-        route_after_clarify,
+        "query_process",
+        route_after_process,
         {
-            "clarify": "clarify_response",
-            "route": "route_query",
+            "clarify_response": "clarify_response",
+            "tool_calling": "tool_calling",
+            "hybrid_retrieval": "hybrid_retrieval",
+            "chat_reply": "chat_reply",
         }
     )
 
-    # 条件边 2：意图路由
-    graph.add_conditional_edges(
-        "route_query",
-        route_by_intent,
-        {
-            "web": "tool_calling",
-            "knowledge": "hybrid_retrieval",
-            "chat": "chat_reply",
-        }
-    )
-
-    # 条件边 3：RAG 回答是否有效
+    # 条件边 2：RAG 回答是否有效
     graph.add_conditional_edges(
         "validate_answer",
         route_after_validate,

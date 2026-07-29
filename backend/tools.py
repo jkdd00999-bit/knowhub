@@ -115,7 +115,7 @@ def get_document_info(filename: str) -> str:
     # 路径验证，防止路径穿越
     valid, err = _validate_path(filepath)
     if not valid:
-        return f"❌ 安全限制: {err}"
+        return f"[ERR] 安全限制: {err}"
     if not os.path.exists(filepath):
         return f"文档「{filename}」不存在"
     size = os.path.getsize(filepath) / 1024
@@ -277,7 +277,7 @@ def read_file(filepath: str) -> str:
     # 路径验证
     valid, err = _validate_path(filepath)
     if not valid:
-        return f"❌ 安全限制: {err}"
+        return f"[ERR] 安全限制: {err}"
 
     if not os.path.exists(filepath):
         return f"文件不存在: {filepath}"
@@ -297,7 +297,7 @@ def write_to_file(filepath: str, content: str) -> str:
     # 路径验证
     valid, err = _validate_path(filepath)
     if not valid:
-        return f"❌ 安全限制: {err}"
+        return f"[ERR] 安全限制: {err}"
 
     try:
         dirname = os.path.dirname(filepath)
@@ -305,7 +305,7 @@ def write_to_file(filepath: str, content: str) -> str:
             os.makedirs(dirname, exist_ok=True)
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(content)
-        return f"✅ 已保存到 {filepath}"
+        return f"[OK] 已保存到 {filepath}"
     except Exception as e:
         return f"保存失败: {e}"
 
@@ -316,7 +316,7 @@ def list_directory(path: str = ".") -> str:
     # 路径验证
     valid, err = _validate_path(path)
     if not valid:
-        return f"❌ 安全限制: {err}"
+        return f"[ERR] 安全限制: {err}"
 
     try:
         items = os.listdir(path)
@@ -405,7 +405,7 @@ def save_to_memory(key: str, value: str, user_id: Optional[str] = None) -> str:
     finally:
         conn.close()
     
-    return f"✅ 已记住: {key} = {value}"
+    return f"[OK] 已记住: {key} = {value}"
 
 
 @tool
@@ -473,7 +473,7 @@ def forget_from_memory(key: str, user_id: Optional[str] = None) -> str:
         conn.close()
 
     if affected:
-        return f"✅ 已忘记: {key}"
+        return f"[OK] 已忘记: {key}"
     return f"未找到「{key}」的记忆"
 
 
@@ -495,7 +495,7 @@ def clear_memory(user_id: Optional[str] = None) -> str:
     finally:
         conn.close()
     
-    return f"✅ 已清除 {affected} 条记忆"
+    return f"[OK] 已清除 {affected} 条记忆"
 
 
 @tool
@@ -780,8 +780,8 @@ def recall_episodes(query: str = "") -> str:
         for row in rows:
             parts.append(
                 f"\n  [{row['task_type']}] {row['task_description']}\n"
-                f"    ❌ 失败: {row['mistake'][:50]}...\n"
-                f"    ✅ 成功: {row['fix'][:50]}...\n"
+                f"    [ERR] 失败: {row['mistake'][:50]}...\n"
+                f"    [OK] 成功: {row['fix'][:50]}...\n"
                 f"    链路: {row['tool_trajectory']}"
             )
         return "\n".join(parts)
@@ -802,7 +802,7 @@ def record_episode(task_type: str, task_description: str,
     uid = _get_current_user_id()
     emb = _get_task_embedding(task_description)
     if emb is None:
-        return "❌ 获取任务向量失败"
+        return "[ERR] 获取任务向量失败"
 
     emb_json = json.dumps(emb)
     conn = _get_memory_conn()
@@ -824,7 +824,7 @@ def record_episode(task_type: str, task_description: str,
                 )
                 conn.commit()
                 conn.close()
-                return f"✅ 已更新已有经验 #{row['id']}"
+                return f"[OK] 已更新已有经验 #{row['id']}"
         except Exception:
             continue
 
@@ -836,7 +836,7 @@ def record_episode(task_type: str, task_description: str,
     """, (uid, task_type, emb_json, task_description, mistake, fix, tool_trajectory))
     conn.commit()
     conn.close()
-    return f"✅ 已记录新经验: {task_description[:30]}"
+    return f"[OK] 已记录新经验: {task_description[:30]}"
 
 
 # ==================== 对话归档（Dialogue Archive）====================
@@ -1496,7 +1496,7 @@ def schedule_task(query: str, time_str: str, repeat: str = "once") -> str:
     _save_tasks(tasks)
 
     repeat_label = {"once": "一次性", "daily": "每天", "weekly": "每周"}.get(repeat, repeat)
-    return f"✅ 已创建定时任务 #{task['id']}：{repeat_label} {exec_time} — {query}"
+    return f"[OK] 已创建定时任务 #{task['id']}：{repeat_label} {exec_time} — {query}"
 
 
 @tool
@@ -1521,11 +1521,11 @@ def cancel_scheduled_task(task_id: int) -> str:
     tasks = _load_tasks()
     target = next((t for t in tasks if t["id"] == task_id), None)
     if not target:
-        return f"❌ 未找到编号为 {task_id} 的定时任务。"
+        return f"[ERR] 未找到编号为 {task_id} 的定时任务。"
 
     tasks.remove(target)
     _save_tasks(tasks)
-    return f"✅ 已取消定时任务 #{task_id}：{target['query']}"
+    return f"[OK] 已取消定时任务 #{task_id}：{target['query']}"
 
 
 @tool
@@ -1583,7 +1583,7 @@ def send_email(to: str, subject: str, body: str) -> str:
     QQ邮箱: SMTP_HOST=smtp.qq.com, SMTP_PORT=587，密码填授权码（非QQ密码）。
     """
     if not SMTP_USER or not SMTP_PASSWORD:
-        return "❌ 未配置 SMTP，请在 .env 中设置 SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASSWORD。QQ邮箱需使用授权码。\n参考: https://service.mail.qq.com/detail/0/428"
+        return "[ERR] 未配置 SMTP，请在 .env 中设置 SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASSWORD。QQ邮箱需使用授权码。\n参考: https://service.mail.qq.com/detail/0/428"
 
     try:
         msg = MIMEMultipart()
@@ -1597,11 +1597,11 @@ def send_email(to: str, subject: str, body: str) -> str:
             server.login(SMTP_USER, SMTP_PASSWORD)
             server.send_message(msg)
 
-        return f"✅ 邮件已发送 → {to} 主题：{subject}"
+        return f"[OK] 邮件已发送 → {to} 主题：{subject}"
     except smtplib.SMTPAuthenticationError:
-        return "❌ SMTP 认证失败，请检查 SMTP_USER 和 SMTP_PASSWORD 是否正确。QQ邮箱需使用授权码。"
+        return "[ERR] SMTP 认证失败，请检查 SMTP_USER 和 SMTP_PASSWORD 是否正确。QQ邮箱需使用授权码。"
     except Exception as e:
-        return f"❌ 邮件发送失败: {str(e)}"
+        return f"[ERR] 邮件发送失败: {str(e)}"
 
 # ==================== 汇总 ====================
 ALL_TOOLS = [
@@ -1633,4 +1633,4 @@ ALL_TOOLS = [
     check_due_tasks, send_email,
 ]
 
-print(f"✅ tools.py 加载完成，共 {len(ALL_TOOLS)} 个工具")
+print(f"[OK] tools.py 加载完成，共 {len(ALL_TOOLS)} 个工具")

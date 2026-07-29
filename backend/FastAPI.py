@@ -68,7 +68,7 @@ def get_db():
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.execute("PRAGMA journal_mode=WAL")
     _busy_timeout = int(os.getenv("SQLITE_BUSY_TIMEOUT", "5000"))
-    conn.execute("PRAGMA busy_timeout=?", (_busy_timeout,))
+    conn.execute(f"PRAGMA busy_timeout={_busy_timeout}")
     conn.row_factory = sqlite3.Row
     try:
         yield conn
