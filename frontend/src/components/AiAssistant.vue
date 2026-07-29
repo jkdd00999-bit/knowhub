@@ -106,7 +106,7 @@ async function send() {
         conversation_id: conversationId.value,
       }),
       silent: true,
-      timeout: 120000,  // AI 对话需要较长超时（120秒）
+      timeout: 180000,  // AI 对话需要较长超时（180秒）
     })
 
     if (!resp.ok) {

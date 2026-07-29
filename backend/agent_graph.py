@@ -203,50 +203,55 @@ def load_memory_node(state: AgentState) -> dict:
 
 
 # ==================== 节点 2: query_rewrite ====================
-# ==================== 合并节点: 重写+澄清+路由（单次LLM调用） ====================
+# ==================== 合并节点: 重写+澄清+路由 ====================
 def query_process_node(state: AgentState) -> dict:
-    """合并 query_rewrite + query_clarify + route_query 为一次 LLM 调用，大幅降低延迟"""
+    """合并 query_rewrite + query_clarify + route_query"""
     raw = state["raw_message"]
     msgs = state["messages"]
     memory = state.get("memory_context", "")
 
-    # 构建对话历史（仅用于指代消解）
+    # 构建对话历史
     history_msgs = [m for m in msgs[:-1]]
+    has_history = len(history_msgs) >= 2
+
+    # 无历史且无记忆时，跳过LLM重写，用规则判断意图
+    if not has_history and not memory:
+        intent = _classify_intent_by_rules(raw)
+        return {"rewritten_query": raw, "intent": intent}
+
+    # 有历史或记忆时，用LLM做指代消解+意图分类
     history_text = ""
-    if len(history_msgs) >= 2:
+    if has_history:
         parts = []
         for m in history_msgs[-6:]:
             role = "用户" if isinstance(m, HumanMessage) else "助手"
             parts.append(f"{role}：{m.content[:200]}")
         history_text = "\n".join(parts)
 
-    prompt = f"""分析用户问题，一次性完成三项任务。
+    prompt = f"""分析用户问题，一次性完成两项任务。
 
 {f'【用户背景】{memory}' if memory else ''}
 {f'【对话历史】{history_text}' if history_text else ''}
 【用户问题】{raw}
 
-任务1-指代消解：如果对话历史中有"这个""那个""它""上述"等指代词，替换为具体内容。如果无历史或无需替换，输出原问题。
-任务2-澄清判断：问题是否极其模糊无法理解？（少于5字且含义不明）如果是，输出澄清问题。大部分问题都不需要澄清。
-任务3-意图分类：
-- web：需要实时信息（新闻、天气、最新动态、最新政策）
+任务1-指代消解：如果有"这个""那个""它""上述"等指代词，替换为具体内容。无需替换则输出原问题。
+任务2-意图分类：
+- web：需要实时信息（新闻、天气、最新动态）
 - knowledge：查询已有文档/知识库内容
 - chat：普通闲聊问候
 
 严格按以下 JSON 格式输出（不要其他内容）：
-{{"rewritten": "重写后的问题", "clarify": "澄清问题或空字符串", "intent": "web/knowledge/chat"}}"""
+{{"rewritten": "重写后的问题", "intent": "web/knowledge/chat"}}"""
 
     try:
         resp = llm.invoke(prompt)
         content = resp.content.strip()
-        # 提取 JSON
         import re as _re
         json_match = _re.search(r'\{[^{}]*\}', content)
         if json_match:
             import json as _json
             data = _json.loads(json_match.group())
             rewritten = data.get("rewritten", raw) or raw
-            clarify = data.get("clarify", "") or ""
             intent = data.get("intent", "knowledge") or "knowledge"
 
             if intent not in ("web", "knowledge", "chat"):
@@ -255,21 +260,30 @@ def query_process_node(state: AgentState) -> dict:
             if rewritten != raw:
                 print(f"[REWRITE] {raw} -> {rewritten}")
 
-            result = {"rewritten_query": rewritten, "intent": intent}
-
-            # 需要澄清时直接返回澄清问题
-            if clarify and len(clarify) > 5:
-                result["needs_clarification"] = True
-                result["clarification_question"] = clarify
-                result["answer"] = clarify
-                result["source"] = "clarify"
-                result["messages"] = [AIMessage(content=clarify)]
-
-            return result
+            return {"rewritten_query": rewritten, "intent": intent}
     except Exception as e:
         print(f"[WARN] 问题处理失败: {e}")
 
     return {"rewritten_query": raw, "intent": "knowledge"}
+
+
+def _classify_intent_by_rules(query: str) -> str:
+    """基于规则的意图分类（无需LLM，零延迟）"""
+    q = query.strip()
+
+    # 闲聊信号
+    chat_keywords = ["你好", "hello", "hi", "嗨", "你是谁", "谢谢", "再见", "感谢"]
+    if any(kw in q.lower() for kw in chat_keywords) and len(q) < 20:
+        return "chat"
+
+    # 联网搜索信号
+    web_keywords = ["最新", "今天", "现在", "实时", "天气", "股价", "新闻", "动态", "发展状况", "发展现状",
+                     "最新政策", "最新消息", "最新新闻"]
+    if any(kw in q for kw in web_keywords):
+        return "web"
+
+    # 默认走知识库
+    return "knowledge"
 
 # ==================== 节点 4: clarify_response ====================
 def clarify_response_node(state: AgentState) -> dict:
@@ -383,16 +397,24 @@ def rag_generate_node(state: AgentState) -> dict:
 # ==================== 节点 8: validate_answer ====================
 def validate_answer_node(state: AgentState) -> dict:
     """检查 RAG 回答是否包含'找不到'信号"""
-    answer = state["answer"]
+    answer = state.get("answer", "")
+    intent = state.get("intent", "knowledge")
     no_result_signals = [
         "没有找到", "未找到", "找不到", "无法找到", "暂未收录",
         "建议您查阅", "建议您自行", "没有相关信息", "不包含",
         "资料中没有", "没有关于", "未涉及", "建议咨询"
     ]
 
-    if any(signal in answer for signal in no_result_signals):
-        print("[FALLBACK] RAG 回答包含'未找到'信号，切换 Agent 联网搜索")
-        return {"needs_tool_fallback": True}
+    has_no_result = any(signal in answer for signal in no_result_signals)
+
+    if has_no_result:
+        # knowledge 意图不 fallback，直接在回答中说明
+        if intent == "knowledge":
+            print("[INFO] RAG 未找到相关内容，直接返回（不做联网fallback）")
+            return {"needs_tool_fallback": False}
+        else:
+            print("[FALLBACK] RAG 回答包含'未找到'信号，切换 Agent 联网搜索")
+            return {"needs_tool_fallback": True}
 
     return {"needs_tool_fallback": False}
 
@@ -499,8 +521,9 @@ def route_after_process(state: AgentState) -> str:
 
 
 def route_after_validate(state: AgentState) -> str:
-    """RAG 验证后的路由"""
-    if state.get("needs_tool_fallback"):
+    """RAG 验证后的路由：knowledge意图不fallback到联网，直接返回"""
+    intent = state.get("intent", "knowledge")
+    if state.get("needs_tool_fallback") and intent != "knowledge":
         return "fallback"
     return "save"
 
