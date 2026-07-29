@@ -45,6 +45,7 @@
 <script setup>
 import { ref, nextTick, watch } from 'vue'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import { request } from '../composables/useRequest'
 
 marked.setOptions({ breaks: true })
@@ -57,7 +58,8 @@ const msgList = ref(null)
 const inputEl = ref(null)
 
 function renderMarkdown(text) {
-  return marked(text || '')
+  const html = marked(text || '')
+  return DOMPurify.sanitize(html)
 }
 
 function scrollBottom() {

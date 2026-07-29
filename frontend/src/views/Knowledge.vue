@@ -136,6 +136,7 @@
 import { ref, computed, onMounted } from 'vue'
 import SkeletonLoader from '../components/SkeletonLoader.vue'
 import { request } from '../composables/useRequest'
+import { formatDate } from '../utils/date.js'
 
 const loading = ref(true)
 const searchQuery = ref('')
@@ -208,12 +209,6 @@ const filteredKnowledge = computed(() => {
     kb.tags.some(t => t.toLowerCase().includes(q))
   )
 })
-
-function formatDate(dateStr) {
-  if (!dateStr) return ''
-  const d = new Date(dateStr)
-  return d.toLocaleDateString('zh-CN')
-}
 
 function filterKnowledge() {
   // Computed 自动处理

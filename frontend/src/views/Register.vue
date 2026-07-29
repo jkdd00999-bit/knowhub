@@ -30,7 +30,7 @@
             id="password"
             v-model="form.password"
             type="password"
-            placeholder="请输入密码（至少6个字符）"
+            placeholder="请输入密码（至少6位，包含字母和数字）"
             required
             minlength="6"
             autocomplete="new-password"
@@ -84,13 +84,27 @@ async function handleRegister() {
   error.value = ''
   success.value = ''
 
-  if (form.password !== form.confirmPassword) {
-    error.value = '两次密码输入不一致'
+  // 用户名格式验证：只允许字母、数字、下划线、中文
+  const usernameRegex = /^[a-zA-Z0-9_一-龥]{2,20}$/
+  if (!usernameRegex.test(form.username)) {
+    error.value = '用户名只能包含字母、数字、下划线和中文，长度2-20个字符'
     return
   }
 
+  // 密码复杂度验证：至少6个字符，必须包含字母和数字
   if (form.password.length < 6) {
     error.value = '密码至少需要6个字符'
+    return
+  }
+  const hasNumber = /\d/.test(form.password)
+  const hasLetter = /[a-zA-Z]/.test(form.password)
+  if (!hasNumber || !hasLetter) {
+    error.value = '密码必须同时包含字母和数字'
+    return
+  }
+
+  if (form.password !== form.confirmPassword) {
+    error.value = '两次密码输入不一致'
     return
   }
 

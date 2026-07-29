@@ -78,42 +78,44 @@ knowhub/
 │   │   ├── clarify_skill.py    #   澄清判断
 │   │   └── source_ranker.py    #   来源权威性排序
 │   ├── Dockerfile              # 后端容器配置
-│   ├── docker-compose.yml      # 前后端编排
 │   ├── .env.example            # 环境变量配置模板
 │   ├── requirements.txt        # Python 依赖
 │   ├── documents/              # 上传文档存储目录
 │   └── vector_db/              # ChromaDB 向量数据库目录
 │
-└── frontend/                   # 前端 (Vue 3 + Vite)
-    ├── src/
-    │   ├── views/              # 页面组件
-    │   │   ├── Home.vue        #   首页（产品介绍）
-    │   │   ├── Dashboard.vue   #   用户控制台
-    │   │   ├── Knowledge.vue   #   知识库浏览（含热门文档、FAQ）
-    │   │   ├── Documents.vue   #   文档上传管理
-    │   │   ├── Docs.vue        #   文档详情页
-    │   │   ├── Conversations.vue #  对话历史
-    │   │   ├── Subscriptions.vue #  智能订阅管理
-    │   │   ├── Admin.vue       #   管理后台
-    │   │   ├── Login.vue       #   登录页
-    │   │   ├── Register.vue    #   注册页
-    │   │   └── NotFound.vue    #   404 页面
-    │   ├── components/         # 通用组件
-    │   │   ├── AiAssistant.vue #   AI 助手浮窗
-    │   │   ├── SkeletonLoader.vue # 骨架屏加载
-    │   │   └── Toast.vue       #   消息提示
-    │   ├── composables/        # 组合式函数
-    │   │   ├── useRequest.js   #   HTTP 请求封装
-    │   │   └── useToast.js     #   Toast 提示
-    │   ├── router/             # 路由配置
-    │   │   └── index.js        #   路由定义（含权限守卫）
-    │   ├── App.vue             # 根组件
-    │   └── main.js             # 应用入口
-    ├── public/                 # 静态资源
-    ├── Dockerfile              # 前端容器配置
-    ├── nginx.conf              # Nginx 反向代理
-    ├── vite.config.js          # Vite 配置
-    └── package.json            # 前端依赖
+├── frontend/                   # 前端 (Vue 3 + Vite)
+│   ├── src/
+│   │   ├── views/              # 页面组件
+│   │   │   ├── Home.vue        #   首页（产品介绍）
+│   │   │   ├── Dashboard.vue   #   用户控制台
+│   │   │   ├── Knowledge.vue   #   知识库浏览（含热门文档、FAQ）
+│   │   │   ├── Documents.vue   #   文档上传管理
+│   │   │   ├── Docs.vue        #   文档详情页
+│   │   │   ├── Conversations.vue #  对话历史
+│   │   │   ├── Subscriptions.vue #  智能订阅管理
+│   │   │   ├── Admin.vue       #   管理后台
+│   │   │   ├── Login.vue       #   登录页
+│   │   │   ├── Register.vue    #   注册页
+│   │   │   └── NotFound.vue    #   404 页面
+│   │   ├── components/         # 通用组件
+│   │   │   ├── AiAssistant.vue #   AI 助手浮窗
+│   │   │   ├── SkeletonLoader.vue # 骨架屏加载
+│   │   │   └── Toast.vue       #   消息提示
+│   │   ├── composables/        # 组合式函数
+│   │   │   ├── useRequest.js   #   HTTP 请求封装
+│   │   │   └── useToast.js     #   Toast 提示
+│   │   ├── router/             # 路由配置
+│   │   │   └── index.js        #   路由定义（含权限守卫）
+│   │   ├── App.vue             # 根组件
+│   │   └── main.js             # 应用入口
+│   ├── public/                 # 静态资源
+│   ├── Dockerfile              # 前端容器配置
+│   ├── nginx.conf              # Nginx 反向代理
+│   ├── vite.config.js          # Vite 配置
+│   └── package.json            # 前端依赖
+│
+├── docker-compose.yml          # Docker 容器编排
+└── README.md                   # 项目说明
 ```
 
 ---
@@ -189,19 +191,14 @@ npm run dev
 ### 4. Docker 一键部署
 
 ```bash
-cd backend
+# 确保在项目根目录
+cd knowhub
 
-# 配置环境变量（必填！）
-cp .env.example .env
-# 编辑 .env 文件，至少填写以下必填项：
-# - DASHSCOPE_API_KEY: 阿里云 DashScope API Key
-# - TAVILY_API_KEY: Tavily Search API Key
-# - JWT_SECRET_KEY: JWT 密钥（建议用 python -c "import secrets; print(secrets.token_urlsafe(32))" 生成）
+# 配置环境变量
+cp backend/.env.example backend/.env
+# 编辑 backend/.env，填写 DASHSCOPE_API_KEY、TAVILY_API_KEY、JWT_SECRET_KEY 等
 
-# 国内用户建议取消注释以下行，加速重排模型下载（~2.2GB）
-# HF_ENDPOINT=https://hf-mirror.com
-
-# 启动服务
+# 启动所有服务（后端 + 前端 + Redis）
 docker-compose up -d
 ```
 
@@ -210,7 +207,7 @@ docker-compose up -d
 - 后端 API：http://localhost:8000
 - API 文档：http://localhost:8000/docs
 
-> **💡 提示**：首次启动时后端会自动下载 BGE-Reranker 重排模型（约 2.2GB），请耐心等待。国内用户如在 `.env` 中设置了 `HF_ENDPOINT=https://hf-mirror.com` 可显著加速下载。
+> **💡 提示**：国内用户建议在 `backend/.env` 中设置 HuggingFace 镜像加速：`HF_ENDPOINT=https://hf-mirror.com`
 
 ---
 

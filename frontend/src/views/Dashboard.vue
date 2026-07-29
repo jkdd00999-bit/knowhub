@@ -132,6 +132,8 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import SkeletonLoader from '../components/SkeletonLoader.vue'
+import { formatDate } from '../utils/date.js'
+import { getAuthHeaders } from '../utils/auth.js'
 
 const username = ref(localStorage.getItem('username') || '')
 const userId = ref(localStorage.getItem('userId') || '')
@@ -144,23 +146,6 @@ const stats = ref({
 })
 const recentConversations = ref([])
 const files = ref([])
-
-function formatDate(dateStr) {
-  if (!dateStr) return ''
-  const d = new Date(dateStr)
-  const now = new Date()
-  const diff = now - d
-  if (diff < 60000) return '刚刚'
-  if (diff < 3600000) return Math.floor(diff / 60000) + ' 分钟前'
-  if (diff < 86400000) return Math.floor(diff / 3600000) + ' 小时前'
-  if (diff < 604800000) return Math.floor(diff / 86400000) + ' 天前'
-  return d.toLocaleDateString('zh-CN')
-}
-
-function getAuthHeaders() {
-  const token = localStorage.getItem('token')
-  return token ? { Authorization: `Bearer ${token}` } : {}
-}
 
 function openAiAssistant() {
   // 触发 AI 助手悬浮窗打开

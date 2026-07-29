@@ -17,6 +17,23 @@ function toast() {
 }
 
 /**
+ * 全局 401 处理：清除登录状态并跳转到登录页
+ */
+function handleUnauthorized() {
+  // 清除所有登录相关信息
+  localStorage.removeItem('token')
+  localStorage.removeItem('username')
+  localStorage.removeItem('userRole')
+
+  // 避免在登录页重复跳转
+  if (window.location.hash !== '#/login' && window.location.pathname !== '/login') {
+    toast().error('登录已过期，请重新登录')
+    // 跳转到登录页
+    window.location.href = '/login'
+  }
+}
+
+/**
  * Fetch with timeout. Throws on timeout or network error.
  * @param {string} url
  * @param {object} options - standard fetch options plus { timeout?: number, silent?: boolean }
@@ -30,6 +47,12 @@ export async function request(url, options = {}) {
 
   try {
     const res = await fetch(url, { ...fetchOptions, signal: controller.signal })
+
+    // 全局 401 拦截：Token 过期或无效
+    if (res.status === 401) {
+      handleUnauthorized()
+      return res
+    }
 
     if (!res.ok && !silent) {
       if (res.status === 404) {

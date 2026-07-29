@@ -94,6 +94,7 @@
 import { ref, computed, watch, onMounted, nextTick, inject } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import SkeletonLoader from '../components/SkeletonLoader.vue'
 import { request } from '../composables/useRequest'
 
@@ -211,19 +212,21 @@ function filteredDocs(items) {
 function renderMarkdown(text) {
   if (!text) return ''
   marked.setOptions({ breaks: true, gfm: true })
-  return marked(text)
+  const html = marked(text)
+  return DOMPurify.sanitize(html)
 }
 
 const tocHtml = computed(() => {
   const doc = currentDoc.value
   if (!doc?.content) return ''
   const headings = doc.content.match(/^#{1,3} .+/gm) || []
-  return headings.map(h => {
+  const html = headings.map(h => {
     const level = h.match(/^#+/)[0].length
     const text = h.replace(/^#+ /, '')
     const slug = text.toLowerCase().replace(/\s+/g, '-').replace(/[^\w\u4e00-\u9fff-]/g, '')
     return `<a href="#${slug}" class="toc-h${level}">${text}</a>`
   }).join('')
+  return DOMPurify.sanitize(html)
 })
 
 function feedback(type) {

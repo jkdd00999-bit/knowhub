@@ -17,6 +17,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional, List
+from contextvars import ContextVar
 from langchain.tools import tool
 from langchain_community.vectorstores import Chroma
 from langchain_openai import ChatOpenAI
@@ -217,9 +218,42 @@ def correct_grammar(text: str) -> str:
 
 # ==================== 7. 文件工具 (4个) ====================
 
+# 允许文件操作的目录白名单（相对于项目根目录）
+_ALLOWED_DIRS = ["./documents", "./data", "./vector_db", "./temp_files", "."]
+
+def _validate_path(filepath: str) -> tuple[bool, str]:
+    """
+    验证文件路径是否在允许的目录内，防止路径穿越攻击。
+    返回 (是否合法, 错误消息)
+    """
+    try:
+        # 解析为绝对路径，消除 .. 和符号链接
+        abs_path = os.path.realpath(os.path.abspath(filepath))
+        project_root = os.path.realpath(os.path.abspath("."))
+
+        # 检查路径是否在项目根目录内
+        if not abs_path.startswith(project_root):
+            return False, f"路径不在项目目录内: {filepath}"
+
+        # 检查是否在允许的目录列表中
+        for allowed in _ALLOWED_DIRS:
+            allowed_abs = os.path.realpath(os.path.abspath(allowed))
+            if abs_path.startswith(allowed_abs):
+                return True, ""
+
+        return False, f"路径不在允许的目录内: {filepath}"
+    except Exception as e:
+        return False, f"路径验证失败: {e}"
+
+
 @tool
 def read_file(filepath: str) -> str:
     """读取文件内容。支持 txt, md, json 文件。"""
+    # 路径验证
+    valid, err = _validate_path(filepath)
+    if not valid:
+        return f"❌ 安全限制: {err}"
+
     if not os.path.exists(filepath):
         return f"文件不存在: {filepath}"
     try:
@@ -235,6 +269,11 @@ def read_file(filepath: str) -> str:
 @tool
 def write_to_file(filepath: str, content: str) -> str:
     """写入内容到文件。"""
+    # 路径验证
+    valid, err = _validate_path(filepath)
+    if not valid:
+        return f"❌ 安全限制: {err}"
+
     try:
         dirname = os.path.dirname(filepath)
         if dirname:
@@ -249,6 +288,11 @@ def write_to_file(filepath: str, content: str) -> str:
 @tool
 def list_directory(path: str = ".") -> str:
     """列出目录内容。"""
+    # 路径验证
+    valid, err = _validate_path(path)
+    if not valid:
+        return f"❌ 安全限制: {err}"
+
     try:
         items = os.listdir(path)
         files = [f for f in items if os.path.isfile(os.path.join(path, f))]
@@ -298,16 +342,20 @@ def _init_memory_table():
 # 初始化表
 _init_memory_table()
 
-_current_request_user_id = "default_user"
+# 使用 ContextVar 实现请求级别的用户隔离，避免并发串号
+# 每个异步任务/线程都有独立的上下文副本
+_current_request_user_id: ContextVar[str] = ContextVar(
+    "current_user_id", default="default_user"
+)
 
 def set_current_user_id(user_id: str):
-    """设置当前请求的用户 ID(用于记忆隔离）"""
-    global _current_request_user_id
-    _current_request_user_id = user_id
+    """设置当前请求的用户 ID（用于记忆隔离）
+    使用 ContextVar，确保并发请求间数据隔离"""
+    _current_request_user_id.set(user_id)
 
 def _get_current_user_id() -> str:
-    """获取当前用户 ID（由 api.py/agent.py 通过 set_current_user_id 设置）"""
-    return _current_request_user_id
+    """获取当前用户 ID（由 FastAPI.py 通过 set_current_user_id 设置）"""
+    return _current_request_user_id.get()
 
 
 @tool

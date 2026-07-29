@@ -1,32 +1,69 @@
-# 环境变量（含 API Key，不可打入镜像）
+# 环境变量（敏感信息）
 .env
 .env_*
+.env.local
+.env.*.local
 
-# Python
+# Python缓存
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.Python
 
 # 虚拟环境
 venv/
+env/
+ENV/
+.venv
 
-# 向量数据库（运行时生成，不打入镜像）
-vector_db/
-chroma_db/
-
-# 用户上传文档（运行时挂载）
-documents/
-
-# 数据库
+# 数据库文件
 *.db
 *.sqlite
 *.sqlite3
 data/
 
-# 日志
+# 向量数据库
+vector_db/
+chroma_db/
+
+# 上传的文档
+documents/
+
+# 日志文件
 *.log
 
-# IDE
-.vscode/
+# IDE和编辑器
 .idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 临时文件
+temp_files/
+*.tmp
+
+# 构建产物
+dist/
+build/
+node_modules/
+
+# Git
+.git/
+.gitignore
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# 测试和文档
+tests/
+test_*.py
+*.md
+LICENSE
