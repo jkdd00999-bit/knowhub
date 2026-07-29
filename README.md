@@ -19,15 +19,13 @@
 ```
 START
   → load_memory（加载用户记忆：语义记忆 + 情节记忆 + 知识沉淀）
-  → query_rewrite（指代消解 + 问题补全）
-  → query_clarify（LLM 判断是否需要澄清）
+  → query_process（首次提问规则分类，多轮对话LLM指代消解 + 意图路由：web / knowledge / chat）
     → [需澄清] clarify_response → save_memory → END
-    → [不需澄清] route_query（意图路由：web / knowledge / chat）
-      → [knowledge] hybrid_retrieval → rag_generate → validate_answer
-        → [回答有效] save_memory → END
-        → [未命中] tool_calling → save_memory → END
-      → [web] tool_calling → save_memory → END
-      → [chat] chat_reply → save_memory → END
+    → [knowledge] hybrid_retrieval → rag_generate → validate_answer
+      → [回答有效] save_memory → END
+      → [未命中且非knowledge] tool_calling → save_memory → END
+    → [web] tool_calling → save_memory → END
+    → [chat] chat_reply → save_memory → END
 ```
 
 ### 3. RAG 混合检索
@@ -117,6 +115,37 @@ knowhub/
 ├── docker-compose.yml          # Docker 容器编排
 └── README.md                   # 项目说明
 ```
+
+### 📁 文件说明
+
+**后端核心文件**
+
+| 文件 | 功能描述 |
+|------|---------|
+| `FastAPI.py` | **主服务入口**。负责 JWT 认证、文件上传、对话接口、定时调度器启动、CORS 配置、速率限制、数据库初始化。所有 REST API 端点均在此定义。 |
+| `agent_graph.py` | **LangGraph 工作流编排器**。定义 11 个节点的 StateGraph：记忆加载 → 查询处理（首次提问用规则分类意图，多轮对话用 LLM 指代消解）→ 意图路由 → 混合检索 → 答案生成 → 答案验证 → 工具调用 → 闲聊回复 → 记忆保存。 |
+| `agent.py` | **Agent 封装层**。提供同步 `chat()` 和异步 `chat_async()` 两个入口，适配 FastAPI 异步调用和后台调度器同步调用。 |
+| `chunk.py` | **RAG 核心管线**。实现文档加载、层级语义分块、DashScope Embedding、BM25 关键词检索、ChromaDB 向量检索、HybridRetriever 混合检索器、BGEReranker 重排序器、Redis 缓存。 |
+| `tools.py` | **37 个 Agent 工具集**。覆盖：文档搜索（5个）、时间日期（6个）、文本处理（5个）、文件操作（3个）、记忆管理（5个）、情节记忆（2个）、对话归档（1个）、知识沉淀（1个）、联网搜索（3个）、元数据查询（1个）、定时任务与邮件（5个）。使用 `contextvars.ContextVar` 实现请求级用户隔离。 |
+| `memory.py` | **记忆提取模块**。统一调度四类记忆提取：用户画像（`_auto_extract_memory`）、情节记忆（`_auto_extract_episode`）、对话归档（`_archive_dialogue_turns`）、知识沉淀（`_auto_extract_knowledge`）。在后台线程执行，不阻塞主流程。 |
+| `hierarchical_splitter.py` | **层级语义分块器**。自定义 LangChain TextSplitter，支持按文档结构（章→节→条→款）分层切分，兼容红头文件、政策条文、学术论文。 |
+
+**RAG 优化技能（`skills/`）**
+
+| 文件 | 功能描述 |
+|------|---------|
+| `query_optimizer.py` | **查询优化器**。对用户问题进行 jieba 分词 + 关键词扩展，提升 BM25 检索召回率。 |
+| `clarify_skill.py` | **澄清判断**。三级流水线：规则快速检查 → LLM 深度判断 → 生成澄清问题。仅对极其模糊的问题触发澄清。 |
+| `source_ranker.py` | **来源权威性排序**。根据文件名中的关键词（国务院/省/市等）对检索结果按来源权威性重新排序。 |
+
+**前端核心文件**
+
+| 文件 | 功能描述 |
+|------|---------|
+| `AiAssistant.vue` | **悬浮 AI 对话组件**。右下角浮窗，支持多轮对话、Markdown 渲染（DOMPurify 防 XSS）、会话 ID 持久化、180 秒超时。 |
+| `useRequest.js` | **HTTP 请求封装**。统一 fetch 超时控制（15s/180s）、错误 toast 提示、全局 401 拦截（自动清除登录状态并跳转）。 |
+| `useToast.js` | **Toast 通知组合式函数**。通过 Vue provide/inject 机制注入全局 toast 实例。 |
+| `router/index.js` | **路由配置**。定义所有页面路由，含权限守卫（`requiresAuth`、`requiresAdmin`、`guest`）。 |
 
 ---
 
