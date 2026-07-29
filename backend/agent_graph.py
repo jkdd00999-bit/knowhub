@@ -456,26 +456,31 @@ def chat_reply_node(state: AgentState) -> dict:
 
 # ==================== 节点 11: save_memory ====================
 def save_memory_node(state: AgentState) -> dict:
-    """回答后自动提取记忆（容错模式：不影响主流程）"""
-    try:
-        messages = []
-        for m in state.get("messages", []):
-            if isinstance(m, HumanMessage):
-                messages.append({"role": "user", "content": m.content})
-            elif isinstance(m, AIMessage):
-                messages.append({"role": "assistant", "content": m.content})
+    """回答后自动提取记忆（完全隔离，不影响主流程）"""
+    import threading
+    def _do_extract():
+        try:
+            messages = []
+            for m in state.get("messages", []):
+                if isinstance(m, HumanMessage):
+                    messages.append({"role": "user", "content": m.content})
+                elif isinstance(m, AIMessage):
+                    messages.append({"role": "assistant", "content": m.content})
 
-        from memory import _auto_extract_all
-        _auto_extract_all(
-            str(state.get("user_id", "0")),
-            state.get("raw_message", ""),
-            state.get("answer", ""),
-            messages,
-            state.get("conversation_id", 0) or 0,
-        )
-    except Exception as e:
-        print(f"[WARN] 记忆保存失败（不影响回答）: {e}")
+            from memory import _auto_extract_all
+            _auto_extract_all(
+                str(state.get("user_id", "0")),
+                state.get("raw_message", ""),
+                state.get("answer", ""),
+                messages,
+                state.get("conversation_id", 0) or 0,
+            )
+        except BaseException as e:
+            print(f"[WARN] 记忆保存失败（不影响回答）: {e}")
 
+    # 在后台线程执行，不阻塞主流程
+    t = threading.Thread(target=_do_extract, daemon=True)
+    t.start()
     return {}
 
 

@@ -125,7 +125,8 @@ async function send() {
       references: data.references || [],
     })
   } catch (e) {
-    messages.value.push({ id: ++msgIdCounter, role: 'assistant', content: '抱歉，请求失败。请检查网络连接或稍后重试。' })
+    console.error('Chat request failed:', e)
+    messages.value.push({ id: ++msgIdCounter, role: 'assistant', content: `抱歉，请求失败：${e.message || e}。请检查后端是否运行中。` })
   } finally {
     loading.value = false
     scrollBottom()
