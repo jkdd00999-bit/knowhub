@@ -10,10 +10,10 @@
 | 文件 | 用途 |
 |------|------|
 | `FastAPI.py` | FastAPI 主应用，JWT 认证，REST API，文件上传，问答接口，调度器 |
-| `agent_graph.py` | LangGraph 11 节点 Agent Workflow 定义（核心） |
+| `agent_graph.py` | LangGraph 9 节点 Agent Workflow 定义（核心） |
 | `agent.py` | Agent 入口封装，调用 agent_graph |
 | `chunk.py` | 文档加载、分块、Embedding、混合检索器、向量库构建 |
-| `tools.py` | 37 个 LangChain Agent 工具（文档/网络/文本/记忆/邮件/定时任务） |
+| `tools.py` | 34 个 LangChain Agent 工具（文档/网络/文本/记忆/定时任务，不含文件写入和邮件） |
 | `memory.py` | 记忆提取工具模块（语义记忆/情节记忆/知识沉淀） |
 | `hierarchical_splitter.py` | 层级语义分块器（兼容政策文书+学术论文） |
 
@@ -36,7 +36,7 @@
 ## 技术栈
 - **LLM**: Qwen3.7-Plus（DashScope，兼容 OpenAI 接口）
 - **Embedding**: DashScope `text-embedding-v4`，1024 维向量
-- **Agent 编排**: LangGraph StateGraph（11 节点工作流）
+- **Agent 编排**: LangGraph StateGraph（9 节点工作流）
 - **向量数据库**: ChromaDB，存储在 `vector_db/`
 - **重排序**: BGE-Reranker v2-m3（本地 CrossEncoder）
 - **关键词检索**: BM25（jieba 中文分词）
@@ -44,19 +44,17 @@
 - **前端框架**: Vue 3 + Vite
 - **部署**: Docker + docker-compose
 
-## Agent Workflow（11 节点）
+## Agent Workflow（9 节点）
 ```
 START
   → load_memory（加载用户记忆）
-  → query_rewrite（指代消解 + 问题补全）
-  → query_clarify（LLM 判断是否需要澄清）
+  → query_process（规则分类 + 指代消解 + 意图路由）
     → [需澄清] clarify_response → save_memory → END
-    → [不需澄清] route_query（意图路由：web / knowledge / chat）
-      → [knowledge] hybrid_retrieval → rag_generate → validate_answer
-        → [回答有效] save_memory → END
-        → [未命中] tool_calling → save_memory → END
-      → [web] tool_calling → save_memory → END
-      → [chat] chat_reply → save_memory → END
+    → [knowledge] hybrid_retrieval → rag_generate → validate_answer
+      → [回答有效] save_memory → END
+      → [未命中] tool_calling → save_memory → END
+    → [web] tool_calling → save_memory → END
+    → [chat] chat_reply → save_memory → END
 ```
 
 ## 关键配置

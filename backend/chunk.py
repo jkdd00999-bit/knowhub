@@ -534,9 +534,17 @@ def initialize_rag_components():
         BM25_CORPUS_LIMIT = 2000
         all_docs = []
         total_count = 0
+        # 排除知识沉淀 collection，它有自己的检索逻辑
+        EXCLUDED_COLLECTIONS = {"knowledge_nuggets"}
+
         for collection_obj in vector_store._client.list_collections():
             # ChromaDB >= 0.5 返回 Collection 对象，旧版返回字符串
             collection_name = collection_obj if isinstance(collection_obj, str) else collection_obj.name
+
+            # 跳过知识沉淀 collection
+            if collection_name in EXCLUDED_COLLECTIONS:
+                continue
+
             collection = vector_store._client.get_collection(collection_name)
             count = collection.count()
             total_count += count

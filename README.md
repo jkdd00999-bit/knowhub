@@ -14,7 +14,7 @@
 - 自定义 `HierarchicalTextSplitter` 层级语义分块器，兼容红头文件、政策条文、学术论文
 
 ### 2. Agent Workflow 设计
-基于 **LangGraph StateGraph** 设计 11 节点多 Agent 工作流，流程编排如下：
+基于 **LangGraph StateGraph** 设计 9 节点多 Agent 工作流，流程编排如下：
 
 ```
 START
@@ -36,7 +36,7 @@ START
 
 ### 4. Tool Calling 工具调用
 - 集成 **37 个 Agent 工具**，覆盖文档搜索、网络搜索、文本处理、记忆管理、邮件发送等
-- 知识库未命中时**自动切换联网搜索**（Tavily Search API），实现知识兜底
+- 知识库未命中时，对于 web 意图**自动切换联网搜索**（Tavily Search API）；knowledge 意图直接返回，不自动联网
 - 支持翻译、文本润色、关键词提取等实用工具
 
 ### 5. 智能订阅推送
@@ -126,7 +126,7 @@ knowhub/
 | `agent_graph.py` | **LangGraph 工作流编排器**。定义 11 个节点的 StateGraph：记忆加载 → 查询处理（首次提问用规则分类意图，多轮对话用 LLM 指代消解）→ 意图路由 → 混合检索 → 答案生成 → 答案验证 → 工具调用 → 闲聊回复 → 记忆保存。 |
 | `agent.py` | **Agent 封装层**。提供同步 `chat()` 和异步 `chat_async()` 两个入口，适配 FastAPI 异步调用和后台调度器同步调用。 |
 | `chunk.py` | **RAG 核心管线**。实现文档加载、层级语义分块、DashScope Embedding、BM25 关键词检索、ChromaDB 向量检索、HybridRetriever 混合检索器、BGEReranker 重排序器、Redis 缓存。 |
-| `tools.py` | **37 个 Agent 工具集**。覆盖：文档搜索（5个）、时间日期（6个）、文本处理（5个）、文件操作（3个）、记忆管理（5个）、情节记忆（2个）、对话归档（1个）、知识沉淀（1个）、联网搜索（3个）、元数据查询（1个）、定时任务与邮件（5个）。使用 `contextvars.ContextVar` 实现请求级用户隔离。 |
+| `tools.py` | **34 个 Agent 工具集**。覆盖：文档搜索（5个）、时间日期（6个）、文本处理（5个）、文件读取（2个）、记忆管理（5个）、情节记忆（2个）、对话归档（1个）、知识沉淀（1个）、联网搜索（3个）、元数据查询（1个）、定时任务（3个）。使用 `contextvars.ContextVar` 实现请求级用户隔离。注意：出于安全考虑，文件写入和邮件发送工具未暴露给 Agent。 |
 | `memory.py` | **记忆提取模块**。统一调度四类记忆提取：用户画像（`_auto_extract_memory`）、情节记忆（`_auto_extract_episode`）、对话归档（`_archive_dialogue_turns`）、知识沉淀（`_auto_extract_knowledge`）。在后台线程执行，不阻塞主流程。 |
 | `hierarchical_splitter.py` | **层级语义分块器**。自定义 LangChain TextSplitter，支持按文档结构（章→节→条→款）分层切分，兼容红头文件、政策条文、学术论文。 |
 
@@ -250,7 +250,7 @@ docker-compose up -d
 | GET | `/api/auth/me` | 获取当前用户信息 | ✓ |
 | PUT | `/api/auth/me` | 更新用户信息（邮箱） | ✓ |
 | **AI 对话** | | | |
-| POST | `/api/chat` | AI 聊天（流式响应） | ✓ |
+| POST | `/api/chat` | AI 聊天（返回完整响应） | ✓ |
 | **文档管理** | | | |
 | POST | `/api/upload` | 上传文档（PDF/Word/MD/TXT） | ✓ |
 | GET | `/api/docs` | 文档列表 | ✗ |

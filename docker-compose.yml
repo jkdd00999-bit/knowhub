@@ -7,8 +7,12 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: knowhub-backend
-    ports:
-      - "8000:8000"
+    # 不直接暴露端口到宿主机，只通过 nginx 反向代理访问
+    # 如需调试可取消注释下面这行
+    # ports:
+    #   - "8000:8000"
+    expose:
+      - "8000"
     volumes:
       - ./backend/documents:/app/documents
       - ./backend/vector_db:/app/vector_db

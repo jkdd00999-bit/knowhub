@@ -90,6 +90,7 @@
 import { ref, onMounted, inject } from 'vue'
 import SkeletonLoader from '../components/SkeletonLoader.vue'
 import { request } from '../composables/useRequest'
+import { getAuthHeaders } from '../utils/auth'
 
 const toast = inject('$toast', null)
 const docs = ref([])
@@ -103,9 +104,10 @@ const saving = ref(false)
 async function fetchData() {
   loading.value = true
   try {
+    const headers = getAuthHeaders()
     const [docsRes, uRes] = await Promise.all([
-      request('/api/docs', { silent: true }),
-      request('/api/admin/unanswered', { silent: true }),
+      request('/api/docs', { silent: true, headers }),
+      request('/api/admin/unanswered', { silent: true, headers }),
     ])
     if (docsRes.ok) docs.value = await docsRes.json()
     if (uRes.ok) unanswered.value = await uRes.json()
@@ -129,7 +131,7 @@ async function saveDoc() {
   try {
     const res = await request(url, {
       method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify(editForm.value),
     })
     if (res.ok) {
@@ -138,6 +140,8 @@ async function saveDoc() {
       editingDoc.value = null
       toast?.success(isEdit ? '文档已更新' : '文档已创建')
       await fetchData()
+    } else if (res.status === 403) {
+      toast?.error('无权限执行此操作')
     }
   } catch (e) { console.error(e) }
   saving.value = false
@@ -146,9 +150,13 @@ async function saveDoc() {
 async function deleteDoc(id) {
   if (!confirm('确定删除这篇文档？')) return
   try {
-    await request(`/api/docs/${id}`, { method: 'DELETE', silent: true })
-    toast?.success('文档已删除')
-    await fetchData()
+    const res = await request(`/api/docs/${id}`, { method: 'DELETE', silent: true, headers: getAuthHeaders() })
+    if (res.ok) {
+      toast?.success('文档已删除')
+      await fetchData()
+    } else if (res.status === 403) {
+      toast?.error('无权限执行此操作')
+    }
   } catch (e) { console.error(e) }
 }
 </script>

@@ -250,9 +250,20 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
             user_id = int(payload.get("sub"))
         except (TypeError, ValueError):
             raise HTTPException(status_code=401, detail="无效的认证凭证")
-        return {"user_id": user_id, "username": payload.get("username")}
+        # 返回 role 供管理接口鉴权
+        return {
+            "user_id": user_id,
+            "username": payload.get("username"),
+            "role": payload.get("role", "viewer")
+        }
     except JWTError:
         raise HTTPException(status_code=401, detail="无效的认证凭证")
+
+def require_admin(user: dict = Depends(verify_token)):
+    """验证用户是否为管理员"""
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    return user
 
 # ==================== 速率限制（防暴力破解） ====================
 import time
@@ -263,9 +274,29 @@ RATE_LIMIT_WINDOW = 60  # 时间窗口（秒）
 RATE_LIMIT_MAX_REQUESTS = 10  # 窗口内最大请求数
 RATE_LIMIT_MAX_ENTRIES = 10000  # 最大 IP 条目数，防止内存泄漏
 
+# 可信代理 IP 列表（Docker 内部网络中 nginx 容器的地址）
+# 生产环境可通过环境变量配置
+TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", "").split(",") if os.getenv("TRUSTED_PROXIES") else []
+
 # 存储每个 IP 的请求记录: {ip: [timestamp, ...]}
 _rate_limit_store: dict = defaultdict(list)
 _rate_limit_last_cleanup = 0.0
+
+def _get_client_ip(request: Request) -> str:
+    """
+    获取真实客户端 IP。
+    如果请求来自可信代理，则使用 X-Forwarded-For 中的第一个 IP。
+    """
+    # 检查是否来自可信代理
+    direct_ip = request.client.host if request.client else "unknown"
+
+    if direct_ip in TRUSTED_PROXIES or direct_ip.startswith("172."):  # Docker 内网
+        forwarded = request.headers.get("X-Forwarded-For", "")
+        if forwarded:
+            # X-Forwarded-For: client, proxy1, proxy2 — 取第一个
+            return forwarded.split(",")[0].strip()
+
+    return direct_ip
 
 def check_rate_limit(request: Request):
     """
@@ -274,8 +305,7 @@ def check_rate_limit(request: Request):
     """
     global _rate_limit_last_cleanup
 
-    # 只使用 request.client.host，不信任 X-Forwarded-For（可被伪造）
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _get_client_ip(request)
     now = time.time()
     key = client_ip
 
@@ -489,7 +519,12 @@ async def login(request: Request, user: UserLogin, _=Depends(check_rate_limit)):
         row = cursor.fetchone()
         if not row or not verify_password(user.password, row["password_hash"]):
             raise HTTPException(status_code=401, detail="用户名或密码错误")
-        token = create_access_token({"sub": str(row["id"]), "username": row["username"]})
+        # 将 role 写入 JWT，供后续鉴权使用
+        token = create_access_token({
+            "sub": str(row["id"]),
+            "username": row["username"],
+            "role": row["role"] or "viewer"
+        })
         return {"access_token": token, "token_type": "bearer",
                 "username": row["username"], "user_id": row["id"],
                 "email": row["email"] or "",
@@ -594,14 +629,21 @@ async def upload_file(file: UploadFile = File(...), user: dict = Depends(verify_
     filename = file.filename or ""
     ext = os.path.splitext(filename)[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
-        return {"code": 400, "message": f"不支持的文件格式，仅支持: {', '.join(ALLOWED_EXTENSIONS)}"}
+        raise HTTPException(status_code=400, detail=f"不支持的文件格式，仅支持: {', '.join(ALLOWED_EXTENSIONS)}")
 
-    # 2. 检查文件大小（读取文件内容后检查）
-    content = await file.read()
-    if len(content) > MAX_FILE_SIZE:
-        return {"code": 400, "message": f"文件过大，最大支持 {MAX_FILE_SIZE // 1024 // 1024}MB"}
+    # 2. 先检查 Content-Length 头（避免读取超大文件后才拒绝）
+    content_length = file.size
+    if content_length is not None and content_length > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail=f"文件过大，最大支持 {MAX_FILE_SIZE // 1024 // 1024}MB")
 
-    # 3. 保存文件（加入 UUID 防止同名覆写）
+    # 3. 读取文件内容（分块读取避免内存溢出）
+    content = b""
+    while chunk := await file.read(8192):  # 8KB 分块读取
+        if len(content) + len(chunk) > MAX_FILE_SIZE:
+            raise HTTPException(status_code=400, detail=f"文件过大，最大支持 {MAX_FILE_SIZE // 1024 // 1024}MB")
+        content += chunk
+
+    # 4. 保存文件（加入 UUID 防止同名覆写）
     unique_id = uuid.uuid4().hex[:8]
     stored_filename = f"{user['user_id']}_{unique_id}_{os.path.basename(filename)}"
     filepath = os.path.join(DOCUMENTS_DIR, stored_filename)
@@ -800,12 +842,13 @@ async def chat(request: ChatRequest, user: dict = Depends(verify_token)):
         return ChatResponse(answer=answer, conversation_id=conv_id,
                             references=references, source=source)
 
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback as _tb
         print(f"Chat error: {e}")
         _tb.print_exc()
-        return ChatResponse(answer="抱歉，系统处理出错，请稍后重试。",
-                            conversation_id=request.conversation_id or 0)
+        raise HTTPException(status_code=500, detail="系统处理出错，请稍后重试")
 
 async def get_docs():
     """获取所有文档列表（内部复用函数）"""
@@ -856,7 +899,7 @@ async def get_docs():
         return docs
     except Exception as e:
         print(f"Get docs error: {e}")
-        return []
+        raise HTTPException(status_code=500, detail="获取文档列表失败")
 
 
 @app.get("/api/docs")
@@ -894,9 +937,11 @@ async def get_docs_catalog():
             catalog[cat]["items"].append(doc)
 
         return list(catalog.values())
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Get catalog error: {e}")
-        return []
+        raise HTTPException(status_code=500, detail="获取文档目录失败")
 
 def sanitize_title(title: str) -> str:
     """保留中英文数字和连字符，其余删除"""
@@ -906,7 +951,7 @@ def sanitize_title(title: str) -> str:
 
 
 @app.post("/api/docs")
-async def create_doc(data: DocCreate, user: dict = Depends(verify_token)):
+async def create_doc(data: DocCreate, user: dict = Depends(require_admin)):
     """创建新文档（管理后台）"""
     try:
         title = data.title
@@ -940,53 +985,58 @@ async def create_doc(data: DocCreate, user: dict = Depends(verify_token)):
         raise HTTPException(status_code=500, detail="文档创建失败，请稍后重试")
 
 @app.put("/api/docs/{doc_id}")
-async def update_doc(doc_id: int, data: DocUpdate, user: dict = Depends(verify_token)):
+async def update_doc(doc_id: int, data: DocUpdate, user: dict = Depends(require_admin)):
     """更新文档（管理后台）"""
     try:
-        title = data.title or ""
-        category = data.category or "其他"
-        content = data.content or ""
-
         with get_db() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT filename FROM user_files WHERE id = ? AND user_id = ?", (doc_id, user["user_id"]))
+            # 管理员可以更新任何文档
+            cursor.execute("SELECT filename, user_id FROM user_files WHERE id = ?", (doc_id,))
             row = cursor.fetchone()
 
             if not row:
                 raise HTTPException(status_code=404, detail="文档不存在")
 
             old_filename = row["filename"]
+            doc_user_id = row["user_id"]
             old_filepath = os.path.join(DOCUMENTS_DIR, old_filename)
 
-            # 更新文件内容
-            new_filename = f"{sanitize_title(title)}.md"
+            # 保留未修改的字段
+            title = data.title if data.title is not None else old_filename.rsplit(".", 1)[0]
+            content = data.content if data.content is not None else ""
+
+            # 生成新文件名（保留 user_id 前缀）
+            unique_id = old_filename.split("_")[1] if "_" in old_filename else uuid.uuid4().hex[:8]
+            new_filename = f"{doc_user_id}_{unique_id}_{sanitize_title(title)}.md"
             new_filepath = os.path.join(DOCUMENTS_DIR, new_filename)
 
-            with open(new_filepath, "w", encoding="utf-8") as f:
-                f.write(content)
+            # 只在有内容时写入文件
+            if data.content is not None:
+                with open(new_filepath, "w", encoding="utf-8") as f:
+                    f.write(content)
 
-            # 如果文件名变了，删除旧文件
-            if old_filename != new_filename and os.path.exists(old_filepath):
-                os.remove(old_filepath)
+                # 如果文件名变了，删除旧文件
+                if old_filename != new_filename and os.path.exists(old_filepath):
+                    os.remove(old_filepath)
 
             # 更新数据库
             cursor.execute("""
                 UPDATE user_files
                 SET filename = ?, word_count = ?, file_size = ?
-                WHERE id = ? AND user_id = ?
-            """, (new_filename, len(content), len(content.encode("utf-8")), doc_id, user["user_id"]))
+                WHERE id = ?
+            """, (new_filename, len(content), len(content.encode("utf-8")), doc_id))
             conn.commit()
 
         return {"status": "ok", "message": "文档更新成功"}
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Update doc error: {e}")
         raise HTTPException(status_code=500, detail="文档更新失败，请稍后重试")
 
 @app.get("/api/admin/unanswered")
-async def get_unanswered_questions(user: dict = Depends(verify_token)):
+async def get_unanswered_questions(user: dict = Depends(require_admin)):
     """获取未回答的问题列表（管理后台）"""
-    if user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
     try:
         # 从对话记录中找出AI回答为"未找到"或"无法回答"的问题
         with get_db() as conn:
@@ -1024,13 +1074,15 @@ async def get_unanswered_questions(user: dict = Depends(verify_token)):
                         break
 
         return unanswered[:20]  # 最多返回 20 条
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Get unanswered error: {e}")
-        return []
+        raise HTTPException(status_code=500, detail="获取未回答问题失败")
 
 @app.get("/api/docs/{doc_id}")
 async def get_doc_detail(doc_id: int, request: Request):
-    """获取文档详情，包含内容。未登录返回元数据，登录后返回完整内容。"""
+    """获取文档详情。只有文档所有者可查看完整内容，其他人只看元数据。"""
     # 尝试获取当前用户（不强制要求登录）
     current_user = None
     auth_header = request.headers.get("Authorization", "")
@@ -1043,22 +1095,26 @@ async def get_doc_detail(doc_id: int, request: Request):
         except Exception:
             pass
 
-    content = ""
     try:
         with get_db() as conn:
             cursor = conn.cursor()
+            # 包含 user_id 用于权限检查
             cursor.execute("""
-                SELECT id, filename, file_size, page_count, article_count,
+                SELECT id, user_id, filename, file_size, page_count, article_count,
                        word_count, chunk_count, upload_time
                 FROM user_files WHERE id = ?
             """, (doc_id,))
             row = cursor.fetchone()
 
         if not row:
-            return {"error": "文档不存在"}
+            raise HTTPException(status_code=404, detail="文档不存在")
 
         doc = dict(row)
+        doc_owner_id = doc.get("user_id")
         filename = doc.get("filename", "")
+
+        # 判断当前用户是否为文档所有者
+        is_owner = current_user and current_user.get("user_id") == doc_owner_id
 
         # 根据文件名推断分类
         if any(kw in filename for kw in ["科技", "技术", "AI", "人工智能", "创新", "专利"]):
@@ -1072,90 +1128,59 @@ async def get_doc_detail(doc_id: int, request: Request):
         else:
             category = "企业文档"
 
-        # 动态计算页数和字数
+        # 动态计算页数和字数（使用数据库已有值，不再实时解析）
         page_count = doc.get("page_count", 0)
         word_count = doc.get("word_count", 0)
 
-        filepath = os.path.join(DOCUMENTS_DIR, filename)
-        # 查找实际文件（可能带用户ID前缀）
-        if not os.path.exists(filepath):
-            for f in os.listdir(DOCUMENTS_DIR):
-                if f == filename or f.endswith(f"_{filename}"):
-                    filepath = os.path.join(DOCUMENTS_DIR, f)
-                    break
+        # 只有文档所有者才能查看完整内容
+        content = ""
+        if is_owner:
+            filepath = os.path.join(DOCUMENTS_DIR, filename)
+            # 查找实际文件（可能带用户ID前缀）
+            if not os.path.exists(filepath):
+                for f in os.listdir(DOCUMENTS_DIR):
+                    if f == filename or f.endswith(f"_{filename}"):
+                        filepath = os.path.join(DOCUMENTS_DIR, f)
+                        break
 
-        if os.path.exists(filepath):
-            if filepath.endswith('.txt') or filepath.endswith('.md'):
-                try:
-                    with open(filepath, 'r', encoding='utf-8') as f:
-                        txt_content = f.read()
-                    word_count = len(txt_content)
-                    page_count = max(1, word_count // 2000)  # 按2000字/页估算
-                except Exception:
-                    pass
-            elif filepath.endswith('.pdf'):
-                try:
-                    from PyPDF2 import PdfReader
-                    reader = PdfReader(filepath)
-                    page_count = len(reader.pages)
-                    # 统计字数
-                    total_chars = 0
-                    for page in reader.pages:
-                        text = page.extract_text()
-                        if text:
-                            total_chars += len(text)
-                    word_count = total_chars
-                except Exception:
-                    pass
-            elif filepath.endswith('.docx'):
-                try:
-                    from docx import Document as DocxDocument
-                    docx_doc = DocxDocument(filepath)
-                    total_chars = sum(len(p.text) for p in docx_doc.paragraphs)
-                    word_count = total_chars
-                    page_count = max(1, len(docx_doc.paragraphs) // 30)
-                except Exception:
-                    pass
-
-        if os.path.exists(filepath):
-            if filepath.endswith('.txt') or filepath.endswith('.md'):
-                try:
-                    with open(filepath, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                except Exception:
-                    with open(filepath, 'r', encoding='gbk', errors='ignore') as f:
-                        content = f.read()
-            elif filepath.endswith('.pdf'):
-                try:
-                    from PyPDF2 import PdfReader
-                    reader = PdfReader(filepath)
-                    pages_text = []
-                    # 读取全部页面
-                    for i, page in enumerate(reader.pages):
-                        text = page.extract_text()
-                        if text:
-                            pages_text.append(f"## 第{i+1}页\n\n{text}")
-                    content = "\n\n".join(pages_text)
-                    if not content:
-                        content = "*PDF内容提取失败，可能是扫描版PDF*"
-                except Exception as e:
-                    print(f"[WARN] PDF解析失败: {e}")
-                    content = "*PDF解析失败，请检查文件格式*"
-            elif filepath.endswith('.docx'):
-                try:
-                    from docx import Document as DocxDocument
-                    docx_doc = DocxDocument(filepath)
-                    paras = [p.text for p in docx_doc.paragraphs if p.text.strip()]
-                    content = "\n\n".join(paras)
-                    if not content:
-                        content = "*Word文档内容提取失败*"
-                except Exception as e:
-                    print(f"[WARN] Word解析失败: {e}")
-                    content = "*Word文档解析失败，请检查文件格式*"
-
-        # 未登录用户不返回完整内容
-        if not current_user:
+            if os.path.exists(filepath):
+                if filepath.endswith('.txt') or filepath.endswith('.md'):
+                    try:
+                        with open(filepath, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                    except Exception:
+                        with open(filepath, 'r', encoding='gbk', errors='ignore') as f:
+                            content = f.read()
+                elif filepath.endswith('.pdf'):
+                    try:
+                        from PyPDF2 import PdfReader
+                        reader = PdfReader(filepath)
+                        pages_text = []
+                        for i, page in enumerate(reader.pages):
+                            text = page.extract_text()
+                            if text:
+                                pages_text.append(f"## 第{i+1}页\n\n{text}")
+                        content = "\n\n".join(pages_text)
+                        if not content:
+                            content = "*PDF内容提取失败，可能是扫描版PDF*"
+                    except Exception as e:
+                        print(f"[WARN] PDF解析失败: {e}")
+                        content = "*PDF解析失败，请检查文件格式*"
+                elif filepath.endswith('.docx'):
+                    try:
+                        from docx import Document as DocxDocument
+                        docx_doc = DocxDocument(filepath)
+                        paras = [p.text for p in docx_doc.paragraphs if p.text.strip()]
+                        content = "\n\n".join(paras)
+                        if not content:
+                            content = "*Word文档内容提取失败*"
+                    except Exception as e:
+                        print(f"[WARN] Word解析失败: {e}")
+                        content = "*Word文档解析失败，请检查文件格式*"
+        elif not current_user:
             content = "*请登录后查看完整内容*"
+        else:
+            content = "*只有文档所有者可以查看完整内容*"
 
         # 生成Markdown格式的内容（去掉 user_id_ 前缀）
         display_name = filename
@@ -1204,24 +1229,24 @@ async def _get_doc_lock(doc_id: int) -> asyncio.Lock:
         return _doc_delete_locks[doc_id]
 
 @app.delete("/api/docs/{doc_id}")
-async def delete_doc(doc_id: int, user: dict = Depends(verify_token)):
-    """删除文档（同时清理向量数据库和缓存）"""
+async def delete_doc(doc_id: int, user: dict = Depends(require_admin)):
+    """删除文档（同时清理向量数据库和缓存）- 管理员权限"""
     lock = await _get_doc_lock(doc_id)
     async with lock:
         try:
             with get_db() as conn:
                 cursor = conn.cursor()
-                # 查询文档信息
-                cursor.execute("SELECT filename FROM user_files WHERE id = ? AND user_id = ?", (doc_id, user["user_id"]))
+                # 管理员可以删除任何文档
+                cursor.execute("SELECT filename FROM user_files WHERE id = ?", (doc_id,))
                 row = cursor.fetchone()
 
                 if not row:
-                    return {"error": "文档不存在"}
+                    raise HTTPException(status_code=404, detail="文档不存在")
 
                 filename = row[0]
 
                 # 删除数据库记录
-                cursor.execute("DELETE FROM user_files WHERE id = ? AND user_id = ?", (doc_id, user["user_id"]))
+                cursor.execute("DELETE FROM user_files WHERE id = ?", (doc_id,))
 
                 # 删除物理文件（兼容新旧命名格式）
                 filepath = os.path.join(DOCUMENTS_DIR, filename)
@@ -1240,22 +1265,30 @@ async def delete_doc(doc_id: int, user: dict = Depends(verify_token)):
                     try:
                         vs = load_vector_store()
                         if vs is not None:
+                            # 提取原始文件名（去掉 user_id_ 和 uuid_ 前缀）
+                            # 存储格式: {user_id}_{uuid}_{original_name}
+                            parts = filename.split("_", 2)
+                            original_name = parts[2] if len(parts) >= 3 else (parts[1] if len(parts) >= 2 else filename)
+
+                            # 尝试多种可能的 source 值
                             vs.delete(where={"source": filename})
-                            original_name = filename.split("_", 1)[-1] if "_" in filename else filename
-                            if original_name != filename:
-                                vs.delete(where={"source": original_name})
-                            print(f"已清理向量数据库中 {filename} 的向量")
+                            vs.delete(where={"source": original_name})
+                            print(f"已清理向量数据库中 {original_name} 的向量")
                     except Exception as ve:
                         print(f"[WARN] 向量数据库清理失败: {ve}")
 
                     try:
                         cached = load_cached_chunks()
-                        filtered = [c for c in cached if c.metadata.get("source") != filename
-                                    and c.metadata.get("source") != (filename.split("_", 1)[-1] if "_" in filename else filename)]
+                        # 提取原始文件名用于匹配
+                        parts = filename.split("_", 2)
+                        original_name = parts[2] if len(parts) >= 3 else (parts[1] if len(parts) >= 2 else filename)
+
+                        filtered = [c for c in cached
+                                    if c.metadata.get("source") != filename
+                                    and c.metadata.get("source") != original_name]
                         save_chunks_cache(filtered)
                         chunked_files = get_chunked_files()
                         chunked_files.discard(filename)
-                        original_name = filename.split("_", 1)[-1] if "_" in filename else filename
                         chunked_files.discard(original_name)
                         save_chunked_files(chunked_files)
                     except Exception as ce:
@@ -1266,9 +1299,11 @@ async def delete_doc(doc_id: int, user: dict = Depends(verify_token)):
                 initialize_rag_components()
 
                 return {"message": "文档已删除"}
+        except HTTPException:
+            raise
         except Exception as e:
             print(f"Delete doc error: {e}")
-            return {"error": "删除文档失败，请稍后重试"}
+            raise HTTPException(status_code=500, detail="删除文档失败，请稍后重试")
         finally:
             # 清理锁，防止内存泄漏
             async with _doc_locks_guard:
@@ -1309,7 +1344,7 @@ async def create_subscription(data: SubscriptionCreate, user: dict = Depends(ver
             )
 
     if not email:
-        return {"code": 400, "message": "请先在个人中心设置邮箱"}
+        raise HTTPException(status_code=400, detail="请先在个人中心设置邮箱")
 
     # 写入 subscriptions 表
     with get_db() as conn:
@@ -1329,17 +1364,23 @@ async def create_subscription(data: SubscriptionCreate, user: dict = Depends(ver
         query = f"搜索{data.topic}领域最新发展动态和重要信息，整理成摘要后发送邮件到{email}，标题：{data.topic}推送"
         task = {
             "id": _get_next_id(tasks),
+            "user_id": user["user_id"],  # 记录订阅创建者
             "query": query,
             "time": f"{tomorrow} 09:00",
             "repeat": data.frequency,
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "last_run": None,
+            "status": "pending",
             "subscription_id": sub_id,  # 关联订阅 ID，方便取消时查找
         }
         tasks.append(task)
         _save_tasks(tasks)
     except Exception as e:
-        print(f"[WARN] 同步到 scheduled_tasks.json 失败: {e}")
+        # JSON 写入失败时回滚数据库记录
+        print(f"[ERROR] 同步到 scheduled_tasks.json 失败，回滚订阅: {e}")
+        with get_db() as conn:
+            conn.execute("DELETE FROM subscriptions WHERE id = ?", (sub_id,))
+        raise HTTPException(status_code=500, detail="订阅创建失败，请稍后重试")
 
     return {"code": 200, "message": "订阅创建成功", "data": {"id": sub_id}}
 
@@ -1372,7 +1413,49 @@ async def cancel_subscription(sub_id: int, user: dict = Depends(verify_token)):
 # ==================== 健康检查 ====================
 @app.get("/api/health")
 async def health():
-    return {"status": "ok"}
+    """健康检查：验证核心依赖是否可用"""
+    status = {"status": "ok", "checks": {}}
+
+    # 检查 SQLite
+    try:
+        with get_db() as conn:
+            conn.execute("SELECT 1")
+        status["checks"]["sqlite"] = "ok"
+    except Exception as e:
+        status["checks"]["sqlite"] = f"error: {e}"
+        status["status"] = "degraded"
+
+    # 检查 Redis
+    try:
+        import redis
+        r = redis.Redis(
+            host=os.getenv("REDIS_HOST", "localhost"),
+            port=int(os.getenv("REDIS_PORT", 6379)),
+            password=os.getenv("REDIS_PASSWORD"),
+            db=int(os.getenv("REDIS_DB", 0)),
+            socket_timeout=2
+        )
+        r.ping()
+        status["checks"]["redis"] = "ok"
+    except Exception as e:
+        status["checks"]["redis"] = f"error: {e}"
+        # Redis 降级不视为致命错误
+
+    # 检查文档目录
+    try:
+        if os.path.exists(DOCUMENTS_DIR):
+            status["checks"]["documents_dir"] = "ok"
+        else:
+            status["checks"]["documents_dir"] = "missing"
+            status["status"] = "degraded"
+    except Exception as e:
+        status["checks"]["documents_dir"] = f"error: {e}"
+
+    # 如果有任何致命错误，返回 503
+    if status["status"] != "ok":
+        raise HTTPException(status_code=503, detail=status)
+
+    return status
 
 # ==================== 前端页面（仅独立运行模式）====================
 # 注意：此内嵌 HTML 页面仅用于 `python FastAPI.py` 独立运行时快速预览。
@@ -1733,10 +1816,12 @@ def _run_scheduler_loop():
             for t in due:
                 _log(f"执行任务 #{t['id']}: {t['query'][:80]}")
                 try:
+                    # 使用任务创建者的 user_id
+                    task_user_id = t.get("user_id", "0")
                     result = asyncio.run(chat_async(
                         message=t["query"],
                         history=[],
-                        user_id="0",
+                        user_id=task_user_id,
                         conversation_id=0,
                     ))
                     answer = result.get("output", "")

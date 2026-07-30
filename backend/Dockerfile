@@ -34,5 +34,5 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
 # RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuser
 # USER appuser
 
-# 启动命令
-CMD ["uvicorn", "FastAPI:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+# 启动命令（单 worker 确保 asyncio.Lock 有效，避免多进程竞争）
+CMD ["uvicorn", "FastAPI:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

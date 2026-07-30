@@ -168,15 +168,21 @@ class HierarchicalTextSplitter:
         MAX_SECTION_SIZE = 3072
 
         from collections import defaultdict
-        merged_texts = defaultdict(list)
+        # 按 source 分组，同时保留原始 metadata（如 user_id）
+        merged_texts = defaultdict(lambda: {"texts": [], "metadata": {}})
         for doc in documents:
             source = doc.metadata.get("source", "未知")
-            merged_texts[source].append(doc.page_content)
+            merged_texts[source]["texts"].append(doc.page_content)
+            # 保留 user_id 等关键字段
+            if "user_id" in doc.metadata:
+                merged_texts[source]["metadata"]["user_id"] = doc.metadata["user_id"]
 
         chunks = []
         stats = {"single_section": 0, "split_section": 0}
 
-        for source, page_texts in merged_texts.items():
+        for source, data in merged_texts.items():
+            page_texts = data["texts"]
+            original_metadata = data["metadata"]
             full_text = "\n".join(page_texts)
             source_short = source.rsplit('.', 1)[0] if '.' in source else source
             source_tag = f"【文档: {source_short}】\n"
@@ -190,6 +196,8 @@ class HierarchicalTextSplitter:
                 for c in sub_chunks:
                     c.metadata["source"] = source
                     c.metadata["section_title"] = ""
+                    # 保留 user_id
+                    c.metadata.update(original_metadata)
                     c.page_content = source_tag + c.page_content
                 chunks.extend(sub_chunks)
                 continue
@@ -202,14 +210,18 @@ class HierarchicalTextSplitter:
                 title = sec["title"]
                 level = sec["level"]
 
+                # 合并 metadata：基础字段 + 原始用户信息
+                base_metadata = {
+                    "source": source,
+                    "section_title": title,
+                    "section_level": level,
+                }
+                base_metadata.update(original_metadata)
+
                 if len(content) <= MAX_SECTION_SIZE:
                     chunks.append(Document(
                         page_content=source_tag + content,
-                        metadata={
-                            "source": source,
-                            "section_title": title,
-                            "section_level": level,
-                        },
+                        metadata=base_metadata,
                     ))
                     stats["single_section"] += 1
                 else:
@@ -220,6 +232,8 @@ class HierarchicalTextSplitter:
                         c.page_content = source_tag + f"【{title}】\n" + c.page_content
                         c.metadata["section_title"] = title
                         c.metadata["section_level"] = level
+                        # 保留 user_id
+                        c.metadata.update(original_metadata)
                     chunks.extend(sub_chunks)
                     stats["split_section"] += 1
 

@@ -238,11 +238,9 @@ def correct_grammar(text: str) -> str:
 _TOOLS_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # 允许文件操作的目录白名单（绝对路径）
-# 注意：不包含项目根目录，防止 Agent 读写 .env 等敏感文件
+# 注意：不包含 data/ 和 vector_db/，防止 Agent 覆盖核心数据
 _ALLOWED_DIRS = [
     os.path.join(_TOOLS_BASE_DIR, "documents"),
-    os.path.join(_TOOLS_BASE_DIR, "data"),
-    os.path.join(_TOOLS_BASE_DIR, "vector_db"),
     os.path.join(_TOOLS_BASE_DIR, "temp_files"),
 ]
 
@@ -384,15 +382,14 @@ def _get_current_user_id() -> str:
 
 
 @tool
-def save_to_memory(key: str, value: str, user_id: Optional[str] = None) -> str:
+def save_to_memory(key: str, value: str) -> str:
     """记住用户的重要信息或偏好，跨会话持久化存储。
-    
+
     Args:
         key: 信息类型，如 "name", "prefer_style"
         value: 具体内容，如 "张三", "简洁"
-        user_id: 用户ID（可选，默认从上下文获取）
     """
-    uid = user_id or _get_current_user_id()
+    uid = _get_current_user_id()
 
     conn = _get_memory_conn()
     try:
@@ -404,19 +401,18 @@ def save_to_memory(key: str, value: str, user_id: Optional[str] = None) -> str:
         conn.commit()
     finally:
         conn.close()
-    
+
     return f"[OK] 已记住: {key} = {value}"
 
 
 @tool
-def recall_from_memory(key: str = "", user_id: Optional[str] = None) -> str:
+def recall_from_memory(key: str = "") -> str:
     """回忆用户之前保存的信息。不指定key则返回全部。
-    
+
     Args:
         key: 要回忆的信息类型，留空则返回全部
-        user_id: 用户ID（可选，默认从上下文获取）
     """
-    uid = user_id or _get_current_user_id()
+    uid = _get_current_user_id()
 
     conn = _get_memory_conn()
     try:
@@ -451,14 +447,13 @@ def recall_from_memory(key: str = "", user_id: Optional[str] = None) -> str:
 
 
 @tool
-def forget_from_memory(key: str, user_id: Optional[str] = None) -> str:
+def forget_from_memory(key: str) -> str:
     """忘记指定的记忆。
-    
+
     Args:
         key: 要忘记的信息类型
-        user_id: 用户ID（可选，默认从上下文获取）
     """
-    uid = user_id or _get_current_user_id()
+    uid = _get_current_user_id()
 
     conn = _get_memory_conn()
     try:
@@ -478,13 +473,9 @@ def forget_from_memory(key: str, user_id: Optional[str] = None) -> str:
 
 
 @tool
-def clear_memory(user_id: Optional[str] = None) -> str:
-    """清除当前用户的所有记忆。
-
-    Args:
-        user_id: 用户ID（可选，默认从上下文获取）
-    """
-    uid = user_id or _get_current_user_id()
+def clear_memory() -> str:
+    """清除当前用户的所有记忆。"""
+    uid = _get_current_user_id()
 
     conn = _get_memory_conn()
     try:
@@ -494,7 +485,7 @@ def clear_memory(user_id: Optional[str] = None) -> str:
         conn.commit()
     finally:
         conn.close()
-    
+
     return f"[OK] 已清除 {affected} 条记忆"
 
 
@@ -1238,15 +1229,17 @@ def recall_knowledge(query: str = "", top_k: int = 3) -> str:
         params
     ).fetchall()
 
-    # ChromaDB 语义检索
+    # ChromaDB 语义检索（带用户过滤）
     emb = _get_task_embedding(query)
     chroma_results = []
     if emb:
         try:
             collection = _get_knowledge_collection()
+            # 添加用户过滤条件
             results = collection.query(
                 query_embeddings=[emb],
-                n_results=top_k
+                n_results=top_k,
+                where={"user_id": uid}
             )
             if results["ids"] and results["ids"][0]:
                 for i, nugget_id in enumerate(results["ids"][0]):
@@ -1483,14 +1476,17 @@ def schedule_task(query: str, time_str: str, repeat: str = "once") -> str:
     """
     tasks = _load_tasks()
     exec_time = _parse_time(time_str)
+    uid = _get_current_user_id()  # 使用当前用户 ID
 
     task = {
         "id": _get_next_id(tasks),
+        "user_id": uid,  # 记录任务创建者
         "query": query,
         "time": exec_time,
         "repeat": repeat,
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "last_run": None,
+        "status": "pending",  # 添加状态跟踪
     }
     tasks.append(task)
     _save_tasks(tasks)
@@ -1614,8 +1610,8 @@ ALL_TOOLS = [
     # 文本 (5)
     translate, polish_writing, summarize_text, extract_keywords,
     correct_grammar,
-    # 文件 (3)
-    read_file, write_to_file, list_directory,
+    # 文件 (2) - 移除 write_to_file 防止 Agent 覆盖核心文件
+    read_file, list_directory,
     # 记忆 (5)
     save_to_memory, recall_from_memory, forget_from_memory,
     clear_memory, update_conversation_summary,
@@ -1628,9 +1624,8 @@ ALL_TOOLS = [
     # 网络 (3)
     search_web, get_weather, get_news,
     get_file_metadata,
-    # 定时任务与邮件 (5)
+    # 定时任务 (3) - 移除 send_email 防止未授权邮件发送
     schedule_task, list_scheduled_tasks, cancel_scheduled_task,
-    check_due_tasks, send_email,
 ]
 
 print(f"[OK] tools.py 加载完成，共 {len(ALL_TOOLS)} 个工具")
